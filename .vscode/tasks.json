@@ -1,0 +1,89 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "AutoEQ — Run (auto-detect files)",
+            "type": "shell",
+            "command": "${workspaceFolder}/.venv/Scripts/python.exe",
+            "args": [
+                "${workspaceFolder}/AutoEQ.py"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "clear": true
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
+        },
+        {
+            "label": "AutoEQ — Run with custom target",
+            "type": "shell",
+            "command": "${workspaceFolder}/.venv/Scripts/python.exe",
+            "args": [
+                "${workspaceFolder}/AutoEQ.py",
+                "--target", "${input:targetFile}",
+                "--norm-freq", "${input:normFreq}",
+                "--norm-mode", "freq",
+                "--freq-end", "${input:freqEnd}",
+                "-o", "${input:outputFile}"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "clear": true
+            }
+        },
+        {
+            "label": "AutoEQ — Run with simulate",
+            "type": "shell",
+            "command": "${workspaceFolder}/.venv/Scripts/python.exe",
+            "args": [
+                "${workspaceFolder}/AutoEQ.py",
+                "--simulate"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "clear": true
+            }
+        }
+    ],
+    "inputs": [
+        {
+            "id": "targetFile",
+            "type": "promptString",
+            "description": "Target file path (e.g. targets/Euvony_VocalGod_v1i.txt)",
+            "default": "targets/Euvony_VocalGod_v1i.txt"
+        },
+        {
+            "id": "normFreq",
+            "type": "promptString",
+            "description": "Normalization anchor frequency (Hz)",
+            "default": "800"
+        },
+        {
+            "id": "freqEnd",
+            "type": "promptString",
+            "description": "Upper frequency limit (Hz, leave blank for auto)",
+            "default": "16000"
+        },
+        {
+            "id": "outputFile",
+            "type": "promptString",
+            "description": "Output file name",
+            "default": "autoeq_result.txt"
+        }
+    ]
+}
