@@ -18,7 +18,7 @@ Takes stereo L/R measurements and a target curve, outputs a 64-band PEQ preset r
 - **Joint fc+Q+gain optimizer** — fine-tunes band center frequencies and Q values after gain solve
 - **Adaptive band reallocation** — iteratively moves underused bands to residual hotspots
 - **HF boost cap** — prevents optimizer from forcing boost into rolled-off treble regions
-- **Post-EQ simulation** — write corrected FR for visual verification in Squiglink
+- **Post-EQ simulation** — always generated; upload `*_PostEQ.txt` to Squiglink for visual verification
 - **Built-in target** — Euvony Reference (vocal-centric, detail-hunter, airy)
 
 ---
@@ -55,7 +55,7 @@ Example: `KZ Libra [L].txt` and `KZ Libra [R].txt`
 python AutoEQ.py
 ```
 
-The script auto-detects your measurement files, normalizes them, and outputs `autoeq_result.txt` ready for Poweramp.
+The script auto-detects your measurement files, normalizes them, and outputs `autoeq_result.txt` ready for Poweramp. A post-EQ simulation file `autoeq_result_PostEQ.txt` is also always generated.
 
 ---
 
@@ -68,28 +68,40 @@ python AutoEQ.py
 
 ### With a custom target
 ```bash
-python AutoEQ.py --target targets/Euvony_VocalGod_v1i.txt
+python AutoEQ.py --target "targets/Euvony_VocalGod_v1i.txt"
 ```
 
 ### With manual anchor at 800 Hz
 ```bash
-python AutoEQ.py --target targets/Euvony_VocalGod_v1i.txt --norm-freq 800 --norm-mode freq
+python AutoEQ.py --target "targets/Euvony_VocalGod_v1i.txt" --norm-freq 800 --norm-mode freq
 ```
 
-### Limit to 16 kHz and generate simulation file
+### Limit to 12 kHz (recommended for IEMs with HF rolloff above 12 kHz)
 ```bash
-python AutoEQ.py --freq-end 16000 --simulate
+python AutoEQ.py --freq-end 12000
+```
+
+### Skip post-EQ simulation output
+```bash
+python AutoEQ.py --no-simulate
+```
+
+### Set sample rate to match your DAC/device
+```bash
+python AutoEQ.py --fs 192000
 ```
 
 ### Full example
 ```bash
 python AutoEQ.py \
-    --target targets/Euvony_VocalGod_v1i.txt \
+    --target "targets/Euvony_VocalGod_v1i.txt" \
     --norm-freq 800 --norm-mode freq \
-    --freq-end 16000 \
-    --simulate \
+    --freq-end 12000 \
+    --fs 192000 \
     -o my_result.txt
 ```
+
+> **Note on `--fs`:** Biquad filter coefficients are sample-rate dependent. Set `--fs` to match Poweramp's actual output sample rate (check Settings → Audio → Hi-Res Output). Default is 48000. If using Hi-Res bypass at 192 kHz, use `--fs 192000` — high-Q narrow filters at 8–15 kHz will shift noticeably otherwise.
 
 ---
 
@@ -148,9 +160,9 @@ normalize('IEM_R.txt', 'IEM_R_norm.txt')
 | `--norm-freq` | auto | Normalization anchor (Hz). Auto-selects flattest point 500–800 Hz. |
 | `--norm-mode` | `perceptual` | `freq` / `energy` / `perceptual` |
 | `--bands` | `64` | Number of PEQ bands |
-| `--simulate` | off | Write post-EQ simulation file (`*_PostEQ.txt`) |
+| `--no-simulate` | off | Skip post-EQ simulation output (simulation is on by default) |
 | `--spawn` | off | Iterative band spawning for complex IEMs |
-| `--fs` | `48000` | Target device sample rate (Hz) |
+| `--fs` | `48000` | Target device sample rate (Hz). **Must match Poweramp's actual output rate.** |
 
 ---
 
@@ -172,6 +184,10 @@ Filter  2: ON PK Fc    128.54 Hz  Gain -2.18 dB  Q 0.70
 Filter 64: ON PK Fc  14823.00 Hz  Gain +1.45 dB  Q 12.00
 ```
 
+Two files are always generated:
+- `autoeq_result.txt` — the PEQ preset
+- `autoeq_result_PostEQ.txt` — simulated post-EQ FR (upload to squig.link to verify visually)
+
 ### How to import into Poweramp
 
 1. Open Poweramp → three-dot menu → **Equalizer**
@@ -188,14 +204,19 @@ Filter 64: ON PK Fc  14823.00 Hz  Gain +1.45 dB  Q 12.00
 
 All targets are in the `targets/` folder. These are personal targets tuned for female vocal-centric listening.
 
+> **Note:** Target filenames use spaces. Always quote the path on the command line:  
+> `--target "targets/Euvony Personal Flat.txt"`
+
 | File | Character |
 |---|---|
-| `Euvony_Personal_Flat.txt` | Analytical reference, no bass emphasis |
-| `Euvony_Personal_Target_Musical.txt` | Musical, long listening, balanced |
-| `Euvony_Personal_Target_Moderate.txt` | Moderate bass, vocal forward |
-| `Euvony_AnalyticalVocal_v1r3.txt` | Analytical but vocal-aware |
+| `Euvony Personal Flat.txt` | Analytical reference, no bass emphasis |
+| `Euvony Personal Target Musical.txt` | Musical, long listening, balanced |
+| `Euvony Personal Target Moderate.txt` | Moderate bass, vocal forward |
+| `Euvony Personal Target.txt` | Personal reference |
+| `Euvony VocalGod.txt` | Vocal-forward, earlier version |
 | `Euvony_VocalGod_v1i.txt` | **Vocal supremacy** — female vocal absolute dominant |
-| `Euvony_Custom_v1r5.txt` | Detail extraction, presence + air focused |
+| `Diffuse Field Target.txt` | Diffuse field reference |
+| `Harman 2019v2 Target.txt` | Harman 2019 v2 consumer target |
 
 > These targets were tuned using spectral analysis of real tracks (aespa, YOASOBI, GFRIEND, Lilas Ikuta) and iterated through listening tests.
 
@@ -221,9 +242,11 @@ Compared to references:
 
 ## Workflow Tips
 
-- Use `--simulate` to generate a `_PostEQ.txt` file, then upload to [squig.link](https://squig.link) alongside your target to visually verify the result before listening
-- For A/B comparison between targets, use `--norm-mode energy` so all presets are loudness-neutral
-- For vocal-focused targets, use `--norm-freq 800 --norm-mode freq`
+- Post-EQ simulation (`*_PostEQ.txt`) is generated automatically on every run. Upload it to [squig.link](https://squig.link) alongside your target to visually verify before listening.
+- For A/B comparison between targets, use `--norm-mode energy` so all presets are loudness-neutral.
+- For vocal-focused targets, use `--norm-freq 800 --norm-mode freq`.
+- For IEMs with HF rolloff above 12 kHz (most budget DD/hybrid IEMs), use `--freq-end 12000` to prevent the optimizer from boosting into the rolloff region.
+- Always set `--fs` to match your actual Poweramp output sample rate. Use `--fs 192000` if running Hi-Res bypass.
 
 ---
 
