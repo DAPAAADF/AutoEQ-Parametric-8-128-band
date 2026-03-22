@@ -1,0 +1,29 @@
+# AutoEQ Config File
+# Uncomment and fill in values as needed.
+# Place this file in the same folder as your measurement files.
+# Run: python AutoEQ.py  (no arguments needed if config is set)
+
+# ── Measurement files ─────────────────────────────────────────────────────────
+# If not set, script auto-detects _L / _R files in current folder.
+# left  = Your_IEM_Name [L].txt
+# right = Your_IEM_Name [R].txt
+
+# ── Target ────────────────────────────────────────────────────────────────────
+# Default (no target set) = built-in Euvony Reference
+# External target files are available in the targets/ folder.
+# target = targets/Euvony_VocalGod_v1i.txt
+
+# ── Normalization ─────────────────────────────────────────────────────────────
+# norm_freq = 800
+# norm_mode = freq
+# Modes: freq (anchor point), perceptual (default), energy (loudness-neutral)
+
+# ── Frequency range ────────────────────────────────────────────────────────────
+# freq_end = 16000
+# Leave commented for auto-detect from measurement rolloff.
+# Recommended: 16000 for KZ Libra X / most budget DD IEM
+#              13000 for bright/peaky IEMs that roll off early
+
+# ── Output ────────────────────────────────────────────────────────────────────
+# output = autoeq_result.txt
+# Two files are always generated: result.txt + result_PostEQ.txt
