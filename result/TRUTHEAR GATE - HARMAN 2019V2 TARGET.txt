@@ -1,0 +1,122 @@
+# ==================================================================
+# AutoEQ v17: Truthear Gate [L].txt + Truthear Gate [R].txt
+#           -> Harman 2019v2 Target.txt
+# Range     : 20-16491 Hz | norm @ 595 Hz [perceptual] | delta=-87.114 dB
+# Bands     : 64 optimizer (warped (presence boost 2k-8k)) + 0 boost/cut
+# Optim     : biquad IRLS [v17: wclamp+splinecurv+phslope+residsamp+greedyrealloc]
+#             + joint iters=800 [adaptive fc] + realloc=on
+#             lam=0.15 | lam_s=0.1 | lam_e=0.05
+#             lam_q=0.02 | lam_gd=0.001 | lam_driver=0.5
+#             minphase=on
+# RMSE      : 0.2583 dB (exact biquad) | Max: 1.7883 dB @ 11329 Hz
+# Preamp    : -8.8 dB (true 16k-pt biquad peak = 8.294 dB)
+# ==================================================================
+
+# ----------------------------------------------------
+# ACCURACY (vs target, boost/cut excluded):
+#    Freq    Target       Fit     Error   Status
+# ----------------------------------------------------
+#      20     -0.16     -0.15     +0.01   ✓
+#      32     +0.41     +0.42     +0.01   ✓
+#      50     +0.62     +0.58     -0.03   ✓
+#      63     +0.27     +0.33     +0.06   ✓
+#      80     -0.04     -0.02     +0.02   ✓
+#     100     -0.32     -0.43     -0.11   ✓
+#     125     -1.07     -0.89     +0.18   ✓
+#     160     -1.33     -1.39     -0.06   ✓
+#     200     -1.65     -1.61     +0.04   ✓
+#     250     -1.49     -1.56     -0.07   ✓
+#     315     -1.33     -1.30     +0.03   ✓
+#     400     -0.78     -0.80     -0.03   ✓
+#     500     -0.37     -0.36     +0.00   ✓
+#     630     +0.01     -0.01     -0.02   ✓
+#     800     +0.01     -0.03     -0.04   ✓
+#    1000     -0.57     -0.60     -0.03   ✓
+#    1250     -1.32     -1.29     +0.02   ✓
+#    1600     -1.47     -1.45     +0.02   ✓
+#    2000     -0.42     -0.42     -0.01   ✓
+#    2500     +0.30     +0.30     -0.00   ✓
+#    3150     +0.71     +0.68     -0.03   ✓
+#    4000     -0.24     -0.24     +0.00   ✓
+#    5000     -0.37     -0.35     +0.02   ✓
+#    6300     +2.85     +2.82     -0.03   ✓
+#    8000     -2.77     -2.65     +0.11   ✓
+#   10000     +7.34     +7.69     +0.35   ✓
+#   12500     -6.20     -5.17     +1.02   ⚠
+#   16000     -7.00     -6.27     +0.73   ⚠
+# ----------------------------------------------------
+
+# === PARAMETRIC EQ ===
+
+# ── Poweramp Parametric EQ ──────────────────────────────
+# 1. Set Preamp value in Poweramp equalizer
+# 2. Enter each Filter manually in Poweramp's PEQ bands
+# 3. Use Peak (PK) filter type for all bands
+# ─────────────────────────────────────────────────────────
+
+Preamp: -8.8 dB
+
+Filter  1: ON PK Fc     17.18 Hz  Gain -0.27 dB  Q 0.65
+Filter  2: ON PK Fc     19.55 Hz  Gain -0.23 dB  Q 0.61
+Filter  3: ON PK Fc     22.47 Hz  Gain -0.12 dB  Q 0.51
+Filter  4: ON PK Fc     31.25 Hz  Gain +0.04 dB  Q 0.51
+Filter  5: ON PK Fc     39.74 Hz  Gain +0.20 dB  Q 0.67
+Filter  6: ON PK Fc     40.05 Hz  Gain +0.27 dB  Q 0.73
+Filter  7: ON PK Fc     40.85 Hz  Gain +0.30 dB  Q 0.88
+Filter  8: ON PK Fc     47.43 Hz  Gain +0.17 dB  Q 0.52
+Filter  9: ON PK Fc     57.37 Hz  Gain +0.10 dB  Q 0.46
+Filter 10: ON PK Fc     68.75 Hz  Gain +0.05 dB  Q 0.47
+Filter 11: ON PK Fc     77.02 Hz  Gain +0.01 dB  Q 0.70
+Filter 12: ON PK Fc     78.94 Hz  Gain -0.02 dB  Q 0.72
+Filter 13: ON PK Fc     90.78 Hz  Gain -0.03 dB  Q 0.63
+Filter 14: ON PK Fc    135.21 Hz  Gain -0.13 dB  Q 0.60
+Filter 15: ON PK Fc    162.28 Hz  Gain -0.24 dB  Q 0.78
+Filter 16: ON PK Fc    180.37 Hz  Gain -0.29 dB  Q 0.85
+Filter 17: ON PK Fc    182.41 Hz  Gain -0.35 dB  Q 1.06
+Filter 18: ON PK Fc    184.85 Hz  Gain -0.32 dB  Q 0.81
+Filter 19: ON PK Fc    283.55 Hz  Gain -0.28 dB  Q 0.98
+Filter 20: ON PK Fc    296.32 Hz  Gain -0.24 dB  Q 1.06
+Filter 21: ON PK Fc    300.75 Hz  Gain -0.20 dB  Q 1.03
+Filter 22: ON PK Fc    352.20 Hz  Gain -0.09 dB  Q 0.99
+Filter 23: ON PK Fc    404.66 Hz  Gain +0.03 dB  Q 1.53
+Filter 24: ON PK Fc    454.68 Hz  Gain +0.04 dB  Q 1.47
+Filter 25: ON PK Fc    649.30 Hz  Gain +0.13 dB  Q 1.51
+Filter 26: ON PK Fc    674.31 Hz  Gain +0.16 dB  Q 1.52
+Filter 27: ON PK Fc    780.09 Hz  Gain +0.17 dB  Q 1.54
+Filter 28: ON PK Fc    812.71 Hz  Gain +0.10 dB  Q 1.58
+Filter 29: ON PK Fc   1146.05 Hz  Gain -0.25 dB  Q 1.54
+Filter 30: ON PK Fc   1205.43 Hz  Gain -0.41 dB  Q 2.49
+Filter 31: ON PK Fc   1259.01 Hz  Gain -0.45 dB  Q 1.98
+Filter 32: ON PK Fc   1607.61 Hz  Gain -0.47 dB  Q 2.70
+Filter 33: ON PK Fc   1614.63 Hz  Gain -0.57 dB  Q 3.33
+Filter 34: ON PK Fc   1916.52 Hz  Gain +0.03 dB  Q 3.10
+Filter 35: ON PK Fc   2153.32 Hz  Gain -0.16 dB  Q 2.79
+Filter 36: ON PK Fc   2391.05 Hz  Gain +0.18 dB  Q 3.22
+Filter 37: ON PK Fc   2396.79 Hz  Gain +0.23 dB  Q 3.84
+Filter 38: ON PK Fc   2400.12 Hz  Gain +0.16 dB  Q 3.58
+Filter 39: ON PK Fc   2713.02 Hz  Gain -0.10 dB  Q 2.97
+Filter 40: ON PK Fc   2760.44 Hz  Gain -0.08 dB  Q 2.94
+Filter 41: ON PK Fc   3218.73 Hz  Gain +0.15 dB  Q 2.91
+Filter 42: ON PK Fc   3240.67 Hz  Gain +0.17 dB  Q 3.39
+Filter 43: ON PK Fc   3253.74 Hz  Gain +0.19 dB  Q 3.36
+Filter 44: ON PK Fc   3261.00 Hz  Gain +0.21 dB  Q 3.59
+Filter 45: ON PK Fc   3423.53 Hz  Gain +0.16 dB  Q 3.02
+Filter 46: ON PK Fc   4298.56 Hz  Gain -0.34 dB  Q 4.24
+Filter 47: ON PK Fc   4416.41 Hz  Gain -0.40 dB  Q 3.27
+Filter 48: ON PK Fc   4574.74 Hz  Gain -0.40 dB  Q 4.32
+Filter 49: ON PK Fc   4794.08 Hz  Gain -0.30 dB  Q 4.73
+Filter 50: ON PK Fc   4896.81 Hz  Gain -0.30 dB  Q 5.58
+Filter 51: ON PK Fc   4947.38 Hz  Gain -0.27 dB  Q 5.21
+Filter 52: ON PK Fc   5904.53 Hz  Gain +0.47 dB  Q 3.24
+Filter 53: ON PK Fc   6243.60 Hz  Gain +0.78 dB  Q 2.67
+Filter 54: ON PK Fc   6305.52 Hz  Gain +0.77 dB  Q 3.83
+Filter 55: ON PK Fc   6313.20 Hz  Gain +0.79 dB  Q 3.18
+Filter 56: ON PK Fc   6730.83 Hz  Gain +0.47 dB  Q 8.25
+Filter 57: ON PK Fc   7806.09 Hz  Gain -2.00 dB  Q 6.99
+Filter 58: ON PK Fc   8057.40 Hz  Gain -2.24 dB  Q 7.84
+Filter 59: ON PK Fc   8263.20 Hz  Gain -1.30 dB  Q 10.63
+Filter 60: ON PK Fc   9980.99 Hz  Gain +4.04 dB  Q 3.50
+Filter 61: ON PK Fc  10614.86 Hz  Gain +6.00 dB  Q 3.50
+Filter 62: ON PK Fc  12835.00 Hz  Gain -5.16 dB  Q 5.00
+Filter 63: ON PK Fc  13253.03 Hz  Gain -5.68 dB  Q 5.00
+Filter 64: ON PK Fc  16055.23 Hz  Gain -6.09 dB  Q 6.00

@@ -1,0 +1,1286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>Euvony AutoEQ — Parametric EQ Optimizer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
+
+  :root {
+    --bg:       #080c0e;
+    --panel:    #0e1417;
+    --border:   #1a2428;
+    --border2:  #243038;
+    --green:    #00e5a0;
+    --green-dim:#007a55;
+    --amber:    #f0a500;
+    --blue:     #4db8ff;
+    --red:      #ff5f5f;
+    --text:     #c8d8dc;
+    --text-dim: #4a6068;
+    --text-mid: #7a9aa4;
+    --mono:     'IBM Plex Mono', monospace;
+    --sans:     'IBM Plex Sans', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 13px;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── header ── */
+  header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 10px 24px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+  }
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .logo-img {
+    width: 36px;
+    height: 36px;
+    object-fit: contain;
+    filter: brightness(1.1);
+  }
+  .logo-text {
+    font-family: 'Garamond', 'Georgia', serif;
+    font-size: 18px;
+    font-weight: 600;
+    color: #f4b8c0;
+    letter-spacing: 0.05em;
+  }
+  .logo-text-dim {
+    color: var(--text-mid);
+    font-weight: 400;
+    font-size: 16px;
+  }
+  .logo-sub {
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .header-badge {
+    margin-left: auto;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--green-dim);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  /* ── layout ── */
+  .layout {
+    display: grid;
+    grid-template-columns: 300px 1fr;
+    height: calc(100vh - 57px);
+    overflow: hidden;
+  }
+
+  /* ── sidebar ── */
+  .sidebar {
+    grid-row: 1 / 3;
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+  }
+  .sidebar::-webkit-scrollbar { width: 6px; }
+  .sidebar::-webkit-scrollbar-track { background: var(--border); }
+  .sidebar::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+  .sidebar::-webkit-scrollbar-thumb:hover { background: #3a5060; }
+
+  .section {
+    padding: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .section-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .section-label::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  /* ── drop zone ── */
+  .dropzone {
+    border: 1px dashed var(--border2);
+    border-radius: 6px;
+    padding: 16px 12px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+    margin-bottom: 10px;
+  }
+  .dropzone:hover, .dropzone.drag { border-color: var(--green); background: rgba(0,229,160,0.04); }
+  .dropzone input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
+  .dropzone-icon { font-size: 20px; margin-bottom: 6px; opacity: 0.5; }
+  .dropzone-label { font-size: 11px; color: var(--text-mid); line-height: 1.5; }
+  .dropzone-label span { color: var(--green); }
+  .dropzone-filename {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--green);
+    margin-top: 4px;
+    word-break: break-all;
+  }
+  .ch-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    margin-bottom: 5px;
+    text-transform: uppercase;
+  }
+
+  /* ── form elements ── */
+  label.field-label {
+    display: block;
+    font-size: 11px;
+    color: var(--text-mid);
+    margin-bottom: 5px;
+    margin-top: 10px;
+  }
+  label.field-label:first-child { margin-top: 0; }
+
+  select, input[type="number"], input[type="text"] {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border2);
+    border-radius: 4px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 7px 10px;
+    outline: none;
+    transition: border-color 0.15s;
+    appearance: none;
+  }
+  select { cursor: pointer; }
+  select:focus, input:focus { border-color: var(--green); }
+  select option { background: #0e1417; }
+
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+  /* ── run button ── */
+  .run-btn {
+    width: 100%;
+    padding: 12px;
+    background: var(--green);
+    color: #000;
+    border: none;
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+  .run-btn:hover { background: #00ffb3; transform: translateY(-1px); }
+  .run-btn:active { transform: translateY(0); }
+  .run-btn:disabled { background: var(--green-dim); color: #003322; cursor: not-allowed; transform: none; }
+  .run-btn .spinner {
+    width: 14px; height: 14px;
+    border: 2px solid rgba(0,0,0,0.3);
+    border-top-color: #000;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    display: none;
+  }
+  .run-btn.loading .spinner { display: block; }
+  .run-btn.loading .btn-text::after { content: '...'; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── download bar ── */
+  .dl-bar {
+    background: var(--panel);
+    border: 1px solid var(--border2);
+    border-radius: 8px;
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    animation: fadein 0.3s ease;
+  }
+  @keyframes fadein { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:none; } }
+  .dl-bar-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .dl-bar-label {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--green);
+    letter-spacing: 0.06em;
+  }
+  .dl-bar-label::before { content: '✓  '; }
+  .dl-bar-preamp {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    background: rgba(240,165,0,0.1);
+    border: 1px solid rgba(240,165,0,0.25);
+    border-radius: 6px;
+    padding: 4px 14px;
+  }
+  .dl-bar-preamp-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: var(--amber);
+    opacity: 0.7;
+  }
+  .dl-bar-preamp-value {
+    font-family: var(--mono);
+    font-size: 24px;
+    font-weight: 500;
+    color: var(--amber);
+    letter-spacing: -0.02em;
+    line-height: 1;
+  }
+  .dl-bar-preamp-unit {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--amber);
+    opacity: 0.7;
+  }
+  .dl-bar-rmse {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .dl-bar-right {
+    display: flex;
+    gap: 8px;
+  }
+  .dl-bar-btn {
+    padding: 8px 18px;
+    background: var(--green);
+    color: #000;
+    border: none;
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: 0.04em;
+  }
+  .dl-bar-btn:hover { background: #00ffb3; }
+  .dl-bar-btn.secondary {
+    background: transparent;
+    border: 1px solid var(--border2);
+    color: var(--text-mid);
+  }
+  .dl-bar-btn.secondary:hover { border-color: var(--green); color: var(--green); }
+  .dl-bar-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* ── download buttons (sidebar, kept for compat) ── */
+  .dl-row { display: none; }
+
+  /* ── preamp display ── */
+  .preamp-display {
+    background: var(--bg);
+    border: 1px solid var(--border2);
+    border-radius: 4px;
+    padding: 10px 14px;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .preamp-label { font-size: 11px; color: var(--text-dim); }
+  .preamp-value {
+    font-family: var(--mono);
+    font-size: 22px;
+    font-weight: 500;
+    color: var(--amber);
+    letter-spacing: -0.02em;
+  }
+  .preamp-unit { font-family: var(--mono); font-size: 12px; color: var(--text-mid); }
+
+  /* ── main area ── */
+  .main {
+    overflow-y: auto;
+    padding: 20px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+  .main::-webkit-scrollbar { width: 6px; }
+  .main::-webkit-scrollbar-track { background: var(--border); }
+  .main::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+  .main::-webkit-scrollbar-thumb:hover { background: #3a5060; }
+
+  /* ── chart card ── */
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: visible;
+  }
+  .card-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .card-title {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+  .legend {
+    display: flex;
+    gap: 16px;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--text-mid);
+  }
+  .legend-dot {
+    width: 20px; height: 2px;
+    border-radius: 1px;
+  }
+  .chart-wrap {
+    padding: 16px;
+    height: 320px;
+    position: relative;
+  }
+
+  /* ── empty state ── */
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 320px;
+    color: var(--text-dim);
+    gap: 10px;
+  }
+  .empty-icon { font-size: 36px; opacity: 0.3; }
+  .empty-text { font-size: 12px; letter-spacing: 0.05em; }
+
+  /* ── accuracy table ── */
+  .acc-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .acc-table th {
+    padding: 8px 12px;
+    text-align: right;
+    color: var(--text-dim);
+    font-weight: 400;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    border-bottom: 1px solid var(--border);
+  }
+  .acc-table th:first-child { text-align: left; }
+  .acc-table td {
+    padding: 6px 12px;
+    text-align: right;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-mid);
+  }
+  .acc-table td:first-child { text-align: left; color: var(--text); }
+  .acc-table tr:last-child td { border-bottom: none; }
+  .acc-table tr:hover td { background: rgba(255,255,255,0.02); }
+  .status-ok   { color: var(--green) !important; }
+  .status-warn { color: var(--amber) !important; }
+  .status-bad  { color: var(--red)   !important; }
+  .err-pos { color: var(--amber); }
+  .err-neg { color: var(--blue); }
+
+  /* ── filter grid ── */
+  .filter-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: var(--border);
+  }
+  .filter-cell {
+    background: var(--panel);
+    padding: 8px 10px;
+    font-family: var(--mono);
+    font-size: 11px;
+  }
+  .filter-cell:hover { background: #111a1f; }
+  .fc-n { color: var(--text-dim); font-size: 10px; margin-bottom: 3px; }
+  .fc-freq { color: var(--text); font-size: 12px; }
+  .fc-gain {
+    font-size: 13px;
+    font-weight: 500;
+    margin: 2px 0;
+  }
+  .fc-gain.pos { color: var(--amber); }
+  .fc-gain.neg { color: var(--blue); }
+  .fc-gain.zero { color: var(--text-dim); }
+  .fc-q { color: var(--text-mid); font-size: 10px; }
+
+  /* ── console ── */
+  .console-toggle {
+    width: 100%;
+    padding: 10px 16px;
+    background: transparent;
+    border: none;
+    border-top: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 11px;
+    text-align: left;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: color 0.15s;
+  }
+  .console-toggle:hover { color: var(--text-mid); }
+  .console-arrow { transition: transform 0.2s; }
+  .console-arrow.open { transform: rotate(90deg); }
+  .console-body {
+    display: none;
+    padding: 12px 16px;
+    background: #06090a;
+    border-top: 1px solid var(--border);
+  }
+  .console-body.open { display: block; }
+  .console-text {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-mid);
+    white-space: pre-wrap;
+    line-height: 1.6;
+    max-height: 300px;
+    overflow-y: auto;
+  }
+
+  /* ── status bar ── */
+  .statusbar {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    height: 26px;
+    background: var(--green);
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: #000;
+    transform: translateY(100%);
+    transition: transform 0.3s;
+    z-index: 100;
+  }
+  .statusbar.show { transform: translateY(0); }
+  .statusbar.error { background: var(--red); color: #fff; }
+
+  /* ── scrollbar for main ── */
+  .main { padding-bottom: 40px; }
+
+  /* ── responsive grid for filters on smaller screens ── */
+  @media (max-width: 900px) {
+    .filter-grid { grid-template-columns: repeat(3, 1fr); }
+  }
+
+  /* ── loading overlay ── */
+  .overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(8, 12, 14, 0.92);
+    backdrop-filter: blur(6px);
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s;
+  }
+  .overlay.visible {
+    opacity: 1;
+    pointer-events: all;
+  }
+  .overlay-box {
+    background: var(--panel);
+    border: 1px solid var(--border2);
+    border-radius: 12px;
+    padding: 40px 48px;
+    min-width: 420px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 28px;
+  }
+  .overlay-title {
+    font-family: var(--mono);
+    font-size: 13px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+
+  /* waveform animation */
+  .wave {
+    display: flex;
+    align-items: flex-end;
+    gap: 4px;
+    height: 40px;
+  }
+  .wave-bar {
+    width: 4px;
+    border-radius: 2px;
+    background: var(--green);
+    animation: wave-anim 1.1s ease-in-out infinite;
+  }
+  .wave-bar:nth-child(1)  { animation-delay: 0.0s; }
+  .wave-bar:nth-child(2)  { animation-delay: 0.1s; }
+  .wave-bar:nth-child(3)  { animation-delay: 0.2s; }
+  .wave-bar:nth-child(4)  { animation-delay: 0.3s; }
+  .wave-bar:nth-child(5)  { animation-delay: 0.4s; }
+  .wave-bar:nth-child(6)  { animation-delay: 0.3s; }
+  .wave-bar:nth-child(7)  { animation-delay: 0.2s; }
+  .wave-bar:nth-child(8)  { animation-delay: 0.1s; }
+  .wave-bar:nth-child(9)  { animation-delay: 0.0s; }
+  @keyframes wave-anim {
+    0%, 100% { height: 6px;  opacity: 0.3; }
+    50%       { height: 38px; opacity: 1.0; }
+  }
+
+  /* steps */
+  .steps {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .step {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    transition: color 0.3s;
+  }
+  .step.active { color: var(--text); }
+  .step.done   { color: var(--green-dim); }
+  .step-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    border: 1.5px solid var(--border2);
+    flex-shrink: 0;
+    transition: all 0.3s;
+  }
+  .step.active .step-dot {
+    border-color: var(--green);
+    background: var(--green);
+    box-shadow: 0 0 8px var(--green);
+    animation: pulse-dot 1s ease-in-out infinite;
+  }
+  .step.done .step-dot {
+    border-color: var(--green-dim);
+    background: var(--green-dim);
+  }
+  @keyframes pulse-dot {
+    0%, 100% { box-shadow: 0 0 4px var(--green); }
+    50%       { box-shadow: 0 0 14px var(--green); }
+  }
+
+  /* elapsed */
+  .elapsed {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 0.08em;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <img src="/static/euvony_butterfly.png" class="logo-img" alt="Euvony">
+    <div>
+      <div class="logo-text">Euvony <span class="logo-text-dim">AutoEQ</span></div>
+      <div class="logo-sub">Parametric EQ Optimizer</div>
+    </div>
+  </div>
+  <div class="header-badge">64-band · Poweramp · v17</div>
+</header>
+
+<div class="layout">
+
+  <!-- ═══ SIDEBAR ═══ -->
+  <aside class="sidebar">
+
+    <!-- Measurement upload -->
+    <div class="section">
+      <div class="section-label">Measurement</div>
+
+      <div class="ch-label">Left Channel</div>
+      <div class="dropzone" id="dz-left">
+        <input type="file" accept=".txt,.csv" id="file-left" onchange="onFile('left',this)">
+        <div class="dropzone-icon">📂</div>
+        <div class="dropzone-label"><span>Choose</span> or drop L channel file</div>
+        <div class="dropzone-filename" id="fn-left"></div>
+      </div>
+
+      <div class="ch-label" style="margin-top:10px">Right Channel</div>
+      <div class="dropzone" id="dz-right">
+        <input type="file" accept=".txt,.csv" id="file-right" onchange="onFile('right',this)">
+        <div class="dropzone-icon">📂</div>
+        <div class="dropzone-label"><span>Choose</span> or drop R channel file</div>
+        <div class="dropzone-filename" id="fn-right"></div>
+      </div>
+    </div>
+
+    <!-- Target -->
+    <div class="section">
+      <div class="section-label">Target Curve</div>
+      <label class="field-label">From collection</label>
+      <select id="sel-target" onchange="onTargetSelect()">
+        <option value="">(built-in Euvony Reference)</option>
+      </select>
+      <label class="field-label" style="margin-top:10px">Or upload custom target</label>
+      <div class="dropzone" id="dz-target" style="padding:10px 12px; margin-bottom:0">
+        <input type="file" accept=".txt,.csv" id="file-target" onchange="onTargetFile(this)">
+        <div class="dropzone-label" style="font-size:10px"><span>Choose</span> .txt target file</div>
+        <div class="dropzone-filename" id="fn-target"></div>
+      </div>
+    </div>
+
+    <!-- Parameters -->
+    <div class="section">
+      <div class="section-label">Parameters</div>
+
+      <div class="row2">
+        <div>
+          <label class="field-label">Freq End (Hz)</label>
+          <input type="number" id="freq-end" placeholder="auto" min="4000" max="20000">
+        </div>
+        <div>
+          <label class="field-label">Norm Freq (Hz)</label>
+          <input type="number" id="norm-freq" placeholder="auto" min="100" max="2000">
+        </div>
+      </div>
+
+      <div class="row2" style="margin-top:10px">
+        <div>
+          <label class="field-label">Norm Mode</label>
+          <select id="norm-mode">
+            <option value="perceptual">perceptual</option>
+            <option value="freq">freq</option>
+            <option value="energy">energy</option>
+          </select>
+        </div>
+        <div>
+          <label class="field-label">Sample Rate</label>
+          <select id="fs">
+            <option value="48000">48000 Hz</option>
+            <option value="96000">96000 Hz</option>
+            <option value="192000">192000 Hz</option>
+            <option value="44100">44100 Hz</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="row2" style="margin-top:10px">
+        <div>
+          <label class="field-label">EQ Bands</label>
+          <select id="bands">
+            <option value="16">16 bands</option>
+            <option value="32">32 bands</option>
+            <option value="64" selected>64 bands (max)</option>
+          </select>
+        </div>
+        <div>
+          <label class="field-label">Output filename</label>
+          <div id="out-name-preview" style="font-family:var(--mono);font-size:10px;color:var(--text-dim);padding:7px 4px;word-break:break-all;line-height:1.4">auto</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Run -->
+    <div class="section">
+      <button class="run-btn" id="run-btn">
+        <div class="spinner"></div>
+        <span class="btn-text">▶ Run AutoEQ</span>
+      </button>
+    </div>
+
+    <!-- Preamp moved to result bar -->
+    <div id="preamp-section" style="display:none"></div>
+
+  </aside>
+
+  <!-- ═══ MAIN ═══ -->
+  <main class="main">
+
+    <!-- Download bar -->
+    <div class="dl-bar" id="dl-bar" style="display:none">
+      <div class="dl-bar-left">
+        <span class="dl-bar-label">Result ready</span>
+        <div class="dl-bar-preamp">
+          <span class="dl-bar-preamp-label">PREAMP</span>
+          <span class="dl-bar-preamp-value" id="dl-bar-preamp">—</span>
+          <span class="dl-bar-preamp-unit">dB</span>
+        </div>
+        <span class="dl-bar-rmse" id="dl-bar-rmse"></span>
+      </div>
+      <div class="dl-bar-right">
+        <div style="text-align:right">
+          <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);margin-bottom:4px" id="dl-bar-filename"></div>
+          <div style="display:flex;gap:8px">
+            <button class="dl-bar-btn" id="dl-result" disabled onclick="dlFile('result')">⬇ Download Preset</button>
+            <button class="dl-bar-btn secondary" id="dl-posteq" disabled onclick="dlFile('posteq')">⬇ PostEQ Simulation</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- FR Chart -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Frequency Response</span>
+        <div class="legend" id="chart-legend" style="display:none">
+          <div class="legend-item"><div class="legend-dot" style="background:#4a6068"></div>Raw (L+R avg)</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#4db8ff"></div>Target</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#00e5a0"></div>Post-EQ</div>
+        </div>
+      </div>
+      <div class="chart-wrap">
+        <div class="empty-state" id="chart-empty">
+          <div class="empty-icon">〰</div>
+          <div class="empty-text">Run AutoEQ to see frequency response</div>
+        </div>
+        <canvas id="fr-chart" style="display:none"></canvas>
+      </div>
+    </div>
+
+    <!-- Accuracy Table -->
+    <div class="card" id="acc-card" style="display:none">
+      <div class="card-header">
+        <span class="card-title">Accuracy vs Target</span>
+        <span style="font-family:var(--mono);font-size:11px;color:var(--text-dim)" id="rmse-badge"></span>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="acc-table" id="acc-table">
+          <thead>
+            <tr>
+              <th>Freq</th>
+              <th>Target</th>
+              <th>Fit</th>
+              <th>Error</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="acc-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="card" id="filter-card" style="display:none">
+      <div class="card-header">
+        <span class="card-title">Filter Bands</span>
+        <span style="font-family:var(--mono);font-size:11px;color:var(--text-dim)" id="filter-count"></span>
+      </div>
+      <div class="filter-grid" id="filter-grid"></div>
+
+      <!-- Console -->
+      <button class="console-toggle" onclick="toggleConsole(this)">
+        <span class="console-arrow">▶</span>
+        <span>Console output</span>
+      </button>
+      <div class="console-body">
+        <div class="console-text" id="console-text"></div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- Status bar -->
+<div class="statusbar" id="statusbar"></div>
+
+<!-- Loading overlay -->
+<div class="overlay" id="overlay">
+  <div class="overlay-box">
+    <div class="overlay-title">Optimizing EQ</div>
+    <div class="wave">
+      <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
+      <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
+      <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
+    </div>
+    <div class="steps">
+      <div class="step" id="step-0"><div class="step-dot"></div>Loading measurements</div>
+      <div class="step" id="step-1"><div class="step-dot"></div>Normalizing &amp; computing correction</div>
+      <div class="step" id="step-2"><div class="step-dot"></div>Running exact-biquad IRLS</div>
+      <div class="step" id="step-3"><div class="step-dot"></div>Band reallocation</div>
+      <div class="step" id="step-4"><div class="step-dot"></div>Joint fc + Q + gain optimizer</div>
+      <div class="step" id="step-5"><div class="step-dot"></div>Generating output &amp; simulation</div>
+    </div>
+    <div class="elapsed" id="elapsed">0.0 s</div>
+  </div>
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+let chart = null;
+
+// ── Targets ────────────────────────────────────────────────────────────────
+fetch('/api/targets').then(r => r.json()).then(targets => {
+  const sel = document.getElementById('sel-target');
+  targets.forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t.path;
+    opt.textContent = t.name;
+    sel.appendChild(opt);
+  });
+});
+
+function onTargetSelect() {
+  // if dropdown selected, clear custom file
+  const sel = document.getElementById('sel-target');
+  if (sel.value) {
+    document.getElementById('file-target').value = '';
+    document.getElementById('fn-target').textContent = '';
+    document.getElementById('dz-target').style.borderColor = '';
+    document.getElementById('dz-target').style.background = '';
+  }
+  updateFilenamePreview();
+}
+
+function onTargetFile(input) {
+  if (input.files[0]) {
+    document.getElementById('fn-target').textContent = input.files[0].name;
+    document.getElementById('dz-target').style.borderColor = 'var(--green)';
+    document.getElementById('dz-target').style.background  = 'rgba(0,229,160,0.04)';
+    // clear dropdown selection
+    document.getElementById('sel-target').value = '';
+  }
+  updateFilenamePreview();
+}
+
+function cleanName(s) {
+  // strip extension and L/R tag
+  s = s.replace(/\.[^/.]+$/, '');
+  s = s.replace(/\s*[\[\(]?[LR][\]\)]?\s*$/i, '').trim();
+  s = s.replace(/[_\-]\s*[LR]\s*$/i, '').trim();
+  return s.toUpperCase();
+}
+
+function updateFilenamePreview() {
+  const lf = document.getElementById('file-left').files[0];
+  const customTgt = document.getElementById('file-target').files[0];
+  const selTgt = document.getElementById('sel-target');
+
+  const iem = lf ? cleanName(lf.name) : '—';
+  let tgt = 'EUVONY REF';
+  if (customTgt) tgt = cleanName(customTgt.name);
+  else if (selTgt.value) tgt = cleanName(selTgt.options[selTgt.selectedIndex].text);
+
+  const preview = lf ? `${iem} - ${tgt}.txt` : 'auto';
+  document.getElementById('out-name-preview').textContent = preview;
+}
+
+// ── File handling ──────────────────────────────────────────────────────────
+function onFile(ch, input) {
+  const fn = document.getElementById(`fn-${ch}`);
+  const dz = document.getElementById(`dz-${ch}`);
+  if (input.files[0]) {
+    fn.textContent = input.files[0].name;
+    dz.style.borderColor = 'var(--green)';
+    dz.style.background  = 'rgba(0,229,160,0.04)';
+  }
+  updateFilenamePreview();
+}
+
+// drag highlight
+['left','right'].forEach(ch => {
+  const dz = document.getElementById(`dz-${ch}`);
+  dz.addEventListener('dragover',  e => { e.preventDefault(); dz.classList.add('drag'); });
+  dz.addEventListener('dragleave', ()  => dz.classList.remove('drag'));
+  dz.addEventListener('drop',      e => { e.preventDefault(); dz.classList.remove('drag'); });
+});
+
+// ── Loading overlay ────────────────────────────────────────────────────────
+const STEP_TIMES = [0, 2, 5, 30, 80, 115]; // approx seconds each step starts
+let _elTimer, _stepTimer, _startTime;
+
+function showOverlay() {
+  // reset steps
+  for (let i = 0; i < 6; i++) {
+    const s = document.getElementById(`step-${i}`);
+    s.className = 'step';
+  }
+  document.getElementById('step-0').className = 'step active';
+  document.getElementById('elapsed').textContent = '0.0 s';
+  document.getElementById('overlay').classList.add('visible');
+
+  _startTime = Date.now();
+
+  // elapsed counter
+  _elTimer = setInterval(() => {
+    const sec = ((Date.now() - _startTime) / 1000).toFixed(1);
+    document.getElementById('elapsed').textContent = sec + ' s';
+    // advance steps by time heuristic
+    const elapsed = parseFloat(sec);
+    for (let i = 0; i < STEP_TIMES.length; i++) {
+      const s = document.getElementById(`step-${i}`);
+      if (elapsed >= STEP_TIMES[i]) {
+        // mark prev as done
+        if (i > 0) document.getElementById(`step-${i-1}`).className = 'step done';
+        s.className = 'step active';
+      }
+    }
+  }, 100);
+}
+
+function hideOverlay(success) {
+  clearInterval(_elTimer);
+  if (success) {
+    // mark all done briefly
+    for (let i = 0; i < 6; i++)
+      document.getElementById(`step-${i}`).className = 'step done';
+    setTimeout(() => document.getElementById('overlay').classList.remove('visible'), 600);
+  } else {
+    document.getElementById('overlay').classList.remove('visible');
+  }
+}
+
+// ── Run ────────────────────────────────────────────────────────────────────
+async function runEQ() {
+  const lf = document.getElementById('file-left').files[0];
+  const rf = document.getElementById('file-right').files[0];
+  if (!lf || !rf) {
+    showStatus('Upload both L and R measurement files first', true);
+    return;
+  }
+
+  const btn = document.getElementById('run-btn');
+  btn.disabled = true;
+  btn.classList.add('loading');
+  showOverlay();
+
+  const fd = new FormData();
+  fd.append('left',  lf);
+  fd.append('right', rf);
+
+  // custom target file takes priority over dropdown
+  const customTarget = document.getElementById('file-target').files[0];
+  if (customTarget) {
+    fd.append('target_file', customTarget);
+  } else {
+    fd.append('target', document.getElementById('sel-target').value);
+  }
+
+  fd.append('freq_end',  document.getElementById('freq-end').value);
+  fd.append('norm_freq', document.getElementById('norm-freq').value);
+  fd.append('norm_mode', document.getElementById('norm-mode').value);
+  fd.append('fs',        document.getElementById('fs').value);
+  fd.append('bands',     document.getElementById('bands').value);
+
+  try {
+    const res  = await fetch('/api/run', { method: 'POST', body: fd });
+    const data = await res.json();
+
+    if (!res.ok || data.error) {
+      hideOverlay(false);
+      showStatus(data.error || 'Run failed', true);
+      document.getElementById('console-text').textContent = data.error || '';
+      // show filter card for console
+      document.getElementById('filter-card').style.display = '';
+      return;
+    }
+
+    hideOverlay(true);
+    renderResults(data);
+    showStatus(`Done · Preamp: ${data.preamp >= 0 ? '+' : ''}${data.preamp.toFixed(1)} dB`);
+
+  } catch(e) {
+    hideOverlay(false);
+    showStatus('Network error: ' + e.message, true);
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove('loading');
+  }
+}
+
+// ── Render ─────────────────────────────────────────────────────────────────
+function renderResults(data) {
+  // Preamp
+  document.getElementById('preamp-section').style.display = '';
+
+  // Downloads + dl-bar
+  document.getElementById('dl-result').disabled = false;
+  document.getElementById('dl-posteq').disabled = false;
+  document.getElementById('dl-bar').style.display = 'flex';
+  const rmseM = (data.output || '').match(/RMSE.*?:\s*([\d.]+)\s*dB/);
+  if (rmseM) document.getElementById('dl-bar-rmse').textContent = `RMSE ${rmseM[1]} dB`;
+  document.getElementById('dl-bar-preamp').textContent =
+    (data.preamp >= 0 ? '+' : '') + data.preamp.toFixed(1);
+  if (data.out_filename)
+    document.getElementById('dl-bar-filename').textContent = data.out_filename;
+
+  // Chart
+  renderChart(data.curves);
+
+  // Accuracy
+  if (data.accuracy && data.accuracy.length) {
+    renderAccuracy(data.accuracy, data.output);
+  }
+
+  // Filters
+  if (data.filters && data.filters.length) {
+    renderFilters(data.filters);
+  }
+
+  // Console
+  document.getElementById('console-text').textContent = data.output || '';
+}
+
+// ── Chart ──────────────────────────────────────────────────────────────────
+function renderChart(curves) {
+  document.getElementById('chart-empty').style.display = 'none';
+  const canvas = document.getElementById('fr-chart');
+  canvas.style.display = 'block';
+  document.getElementById('chart-legend').style.display = 'flex';
+
+  // Subsample to ~300 pts for perf
+  function sub(pts, n=300) {
+    if (!pts || pts.length <= n) return pts;
+    const step = pts.length / n;
+    return Array.from({length: n}, (_, i) => pts[Math.round(i * step)]);
+  }
+
+  const raw    = sub(curves.raw);
+  const target = sub(curves.target);
+  const post   = sub(curves.post);
+
+  // Normalize: center all curves at ~1kHz for visual comparison
+  function normAt1k(pts) {
+    if (!pts || !pts.length) return pts;
+    const ref = pts.reduce((b,p) => Math.abs(p[0]-1000) < Math.abs(b[0]-1000) ? p : b);
+    const offset = ref[1];
+    return pts.map(p => [p[0], p[1] - offset]);
+  }
+
+  const rn = normAt1k(raw);
+  const tn = normAt1k(target);
+  const pn = normAt1k(post);
+
+  const datasets = [];
+
+  if (rn && rn.length) datasets.push({
+    label: 'Raw (L+R avg)',
+    data: rn.map(p => ({x: p[0], y: p[1]})),
+    borderColor: '#3a5560',
+    backgroundColor: 'transparent',
+    borderWidth: 1.5,
+    pointRadius: 0,
+    tension: 0.3,
+    order: 3,
+  });
+
+  if (tn && tn.length) datasets.push({
+    label: 'Target',
+    data: tn.map(p => ({x: p[0], y: p[1]})),
+    borderColor: '#4db8ff',
+    backgroundColor: 'transparent',
+    borderWidth: 1.5,
+    borderDash: [4, 3],
+    pointRadius: 0,
+    tension: 0.3,
+    order: 2,
+  });
+
+  if (pn && pn.length) datasets.push({
+    label: 'Post-EQ',
+    data: pn.map(p => ({x: p[0], y: p[1]})),
+    borderColor: '#00e5a0',
+    backgroundColor: 'transparent',
+    borderWidth: 2,
+    pointRadius: 0,
+    tension: 0.3,
+    order: 1,
+  });
+
+  if (chart) chart.destroy();
+
+  chart = new Chart(canvas, {
+    type: 'line',
+    data: { datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 600 },
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#0e1417',
+          borderColor: '#1a2428',
+          borderWidth: 1,
+          titleColor: '#7a9aa4',
+          bodyColor: '#c8d8dc',
+          titleFont: { family: 'IBM Plex Mono', size: 11 },
+          bodyFont: { family: 'IBM Plex Mono', size: 11 },
+          callbacks: {
+            title: items => `${Math.round(items[0].parsed.x)} Hz`,
+            label: item => ` ${item.dataset.label}: ${item.parsed.y.toFixed(1)} dB`,
+          }
+        }
+      },
+      scales: {
+        x: {
+          type: 'logarithmic',
+          min: 20, max: 20000,
+          grid: { color: '#1a2428' },
+          ticks: {
+            color: '#4a6068',
+            font: { family: 'IBM Plex Mono', size: 10 },
+            maxTicksLimit: 10,
+            callback: v => {
+              const labels = {20:'20',50:'50',100:'100',200:'200',500:'500',
+                             1000:'1k',2000:'2k',5000:'5k',10000:'10k',20000:'20k'};
+              return labels[v] || '';
+            }
+          }
+        },
+        y: {
+          grid: { color: '#1a2428' },
+          ticks: {
+            color: '#4a6068',
+            font: { family: 'IBM Plex Mono', size: 10 },
+            callback: v => v + ' dB',
+          }
+        }
+      }
+    }
+  });
+}
+
+// ── Accuracy table ─────────────────────────────────────────────────────────
+function renderAccuracy(rows, stdout) {
+  const card = document.getElementById('acc-card');
+  card.style.display = '';
+
+  // Extract RMSE from stdout
+  const rmseM = stdout.match(/RMSE.*?:\s*([\d.]+)\s*dB/);
+  if (rmseM) {
+    document.getElementById('rmse-badge').textContent = `RMSE ${rmseM[1]} dB`;
+  }
+
+  const tbody = document.getElementById('acc-body');
+  tbody.innerHTML = '';
+  rows.forEach(r => {
+    const errClass = Math.abs(r.error) < 0.5 ? 'status-ok' : Math.abs(r.error) < 1.5 ? 'status-warn' : 'status-bad';
+    const signClass = r.error > 0 ? 'err-pos' : r.error < 0 ? 'err-neg' : '';
+    const statusClass = r.status === '✓' ? 'status-ok' : r.status === '⚠' ? 'status-warn' : 'status-bad';
+    tbody.innerHTML += `
+      <tr>
+        <td>${r.freq >= 1000 ? (r.freq/1000).toFixed(r.freq%1000===0?0:1)+'k' : r.freq} Hz</td>
+        <td>${r.target >= 0 ? '+' : ''}${r.target.toFixed(2)}</td>
+        <td>${r.fit >= 0 ? '+' : ''}${r.fit.toFixed(2)}</td>
+        <td class="${signClass}">${r.error >= 0 ? '+' : ''}${r.error.toFixed(2)}</td>
+        <td class="${statusClass}">${r.status}</td>
+      </tr>`;
+  });
+}
+
+// ── Filter grid ────────────────────────────────────────────────────────────
+function renderFilters(filters) {
+  const card = document.getElementById('filter-card');
+  card.style.display = '';
+  document.getElementById('filter-count').textContent = `${filters.length} bands`;
+
+  const grid = document.getElementById('filter-grid');
+  grid.innerHTML = '';
+  filters.forEach(f => {
+    const gainClass = Math.abs(f.gain) < 0.1 ? 'zero' : f.gain > 0 ? 'pos' : 'neg';
+    const freqLabel = f.fc >= 1000 ? (f.fc/1000).toFixed(f.fc % 1000 < 100 ? 2 : 1) + 'k' : Math.round(f.fc);
+    grid.innerHTML += `
+      <div class="filter-cell">
+        <div class="fc-n">BAND ${f.n}</div>
+        <div class="fc-freq">${freqLabel} Hz</div>
+        <div class="fc-gain ${gainClass}">${f.gain >= 0 ? '+' : ''}${f.gain.toFixed(2)} dB</div>
+        <div class="fc-q">Q ${f.q.toFixed(2)}</div>
+      </div>`;
+  });
+}
+
+// ── Console toggle ─────────────────────────────────────────────────────────
+function toggleConsole(btn) {
+  const arrow = btn.querySelector('.console-arrow');
+  const body  = btn.nextElementSibling;
+  arrow.classList.toggle('open');
+  body.classList.toggle('open');
+}
+
+// ── Download ───────────────────────────────────────────────────────────────
+function dlFile(kind) {
+  window.location = `/api/download/${kind}`;
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('run-btn').addEventListener('click', runEQ);
+  document.getElementById('sel-target').addEventListener('change', updateFilenamePreview);
+  updateFilenamePreview();
+});
+
+let _stTimer;
+function showStatus(msg, isErr=false) {
+  const bar = document.getElementById('statusbar');
+  bar.textContent = msg;
+  bar.className = 'statusbar show' + (isErr ? ' error' : '');
+  clearTimeout(_stTimer);
+  _stTimer = setTimeout(() => bar.classList.remove('show'), isErr ? 6000 : 4000);
+}
+</script>
+</body>
+</html>
