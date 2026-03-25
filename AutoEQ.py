@@ -2360,7 +2360,9 @@ def main():
     parser.add_argument("--target", "-t", default=None,
                         help="Target curve file (default: built-in personal target)")
     parser.add_argument("--freq-start",  type=float, default=20,
-                        help="Optimization lower bound Hz (default: 20)")
+                        help="Optimization lower bound Hz (default: 20). "
+                             "Minimum 20 Hz — Poweramp's lowest supported frequency. "
+                             "Measurements below 20 Hz are still used for normalization.")
     parser.add_argument("--freq-end",    type=float, default=None,
                         help="Optimization upper bound Hz (default: auto-detect from rolloff)")
     parser.add_argument("--norm-freq",   type=float, default=None,
@@ -2375,9 +2377,9 @@ def main():
     parser.add_argument("--lambda",      type=float, default=0.15, dest="lam")
     parser.add_argument("--lam-smooth",  type=float, default=0.10)
     parser.add_argument("--lam-energy",  type=float, default=0.05)
-    parser.add_argument("--iters",       type=int,   default=3000,
-                        help="Biquad IRLS iterations (default: 2000)")
-    parser.add_argument("--joint-iters", type=int,   default=1200)
+    parser.add_argument("--iters",       type=int,   default=1500,
+                        help="Biquad IRLS iterations (default: 1500)")
+    parser.add_argument("--joint-iters", type=int,   default=800)
     parser.add_argument("--fc-range",    type=float, default=0.15)
     parser.add_argument("--no-realloc",  action="store_true")
     parser.add_argument("--spawn",       action="store_true",
@@ -2435,6 +2437,25 @@ def main():
             print(f"Auto-detect: L={args.left} | R={args.right}")
         except FileNotFoundError as e:
             print(f"ERROR: {e}"); sys.exit(1)
+
+    # ── Auto output filename from measurement + target names ──────
+    if args.output == "autoeq_result.txt":
+        import re as _re
+        def _clean(s):
+            s = Path(s).stem
+            # Remove channel tags [L], [R], _L, _R
+            s = _re.sub(r'\s*[\[\(]?[LR][\]\)]?\s*$', '', s, flags=_re.IGNORECASE).strip()
+            s = _re.sub(r'[_\-]\s*[LR]\s*$', '', s, flags=_re.IGNORECASE).strip()
+            return s.upper()
+        iem_name  = _clean(args.left)
+        if args.target:
+            tgt_name = Path(args.target).stem.upper()
+        else:
+            tgt_name = "EUVONY REF"
+        # Sanitize for filename
+        safe = _re.sub(r'[^\w\s\-]', '', f"{iem_name} - {tgt_name}").strip()
+        args.output = safe + ".txt"
+        print(f"Output     : {args.output} (auto-named)")
 
     # ── Load ─────────────────────────────────────────────────────
     print(f"Loading L : {args.left}")
@@ -2504,7 +2525,10 @@ def main():
     print(f"Correction range   : {corr.min():.2f} to {corr.max():.2f} dB")
 
     # ── Fit range ────────────────────────────────────────────────
-    f_start = max(args.freq_start, float(l_pts[0, 0]))
+    # Analysis uses full measurement range for normalization accuracy.
+    # EQ optimization is clamped to 20 Hz minimum (Poweramp lower limit).
+    POWERAMP_FC_MIN = 20.0
+    f_start = max(args.freq_start, POWERAMP_FC_MIN, float(l_pts[0, 0]))
     f_end   = min(args.freq_end,   float(l_pts[-1, 0]))
     mask    = (l_pts[:, 0] >= f_start) & (l_pts[:, 0] <= f_end)
     f_fit   = l_pts[mask, 0]; c_fit = corr[mask]
@@ -2650,6 +2674,15 @@ def main():
     diffs = np.diff(gains)
     print(f"Smoothness : max adj delta={np.max(np.abs(diffs)):.3f} dB"
           f" | RMS delta={np.sqrt(np.mean(diffs**2)):.3f} dB")
+
+    # ── Clamp fc to Poweramp minimum (20 Hz) ─────────────────────
+    # Joint optimizer fc perturbation can drift bands below 20 Hz.
+    # Bands below 20 Hz are inaudible and waste a filter slot.
+    _fc_min = 20.0
+    n_clamped = int(np.sum(fcs < _fc_min))
+    if n_clamped > 0:
+        fcs = np.maximum(fcs, _fc_min)
+        print(f"FC clamp   : {n_clamped} band(s) below {_fc_min:.0f} Hz clamped to {_fc_min:.0f} Hz")
 
     # ── Energy-neutral normalization ──────────────────────────────
     # Compute perceptually-weighted mean EQ gain over fit range.
