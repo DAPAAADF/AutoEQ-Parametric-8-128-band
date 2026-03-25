@@ -5,6 +5,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [v17.3] — Poweramp Frequency Floor Fix
+
+### Fixed
+
+#### EQ bands drifting below 20 Hz (Poweramp minimum)
+Poweramp's parametric EQ has a minimum center frequency of **20 Hz**. Previously, the joint fc+Q+gain optimizer's center-frequency perturbation (±`fc_range`, default ±15%) could drift initial bands below this limit. Example: a band initialized at 22 Hz with `fc_range=0.15` could settle at ~18.7 Hz — a frequency Poweramp cannot represent, wasting a filter slot.
+
+**Two-stage fix:**
+
+1. **Fit range floor** — `f_start` for EQ optimization is now `max(freq_start, 20.0, l_pts[0,0])`, ensuring band placement never starts below 20 Hz even if `--freq-start` is set lower or measurements begin at sub-20 Hz frequencies.
+
+2. **Post-optimization clamp** — after all optimization stages complete (IRLS → realloc → joint → post-joint realloc), all `fc` values are hard-clamped to 20 Hz minimum:
+   ```python
+   fcs = np.maximum(fcs, 20.0)
+   ```
+   Console prints how many bands were clamped, if any:
+   ```
+   FC clamp   : 2 band(s) below 20 Hz clamped to 20 Hz
+   ```
+
+**Measurement data below 20 Hz is unaffected** — it is still loaded and used for normalization accuracy. Only EQ band placement is restricted.
+
+### Changed
+- `--freq-start` help text updated to document the 20 Hz Poweramp minimum
+- `autoeq_config.txt` note updated
+
+---
+
 ## [v17.2] — Speed + Auto Naming + Bands Selector
 
 ### Changed
