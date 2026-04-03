@@ -1,12 +1,3 @@
-#!/usr/bin/env python3
-"""
-AutoEQ v17 — IEM measurement to 64-band PEQ + GraphicEQ correction pipeline.
-
-Converts raw IEM frequency response measurements (L + R channels) to a
-parametric EQ preset that corrects the IEM toward a target curve.
-
-See README.md for full usage, normalization requirements, and parameter guide.
-"""
 
 import argparse
 import sys
@@ -508,34 +499,21 @@ _BUILTIN_TARGET = [
 def builtin_target_pts():
     arr = np.array(_BUILTIN_TARGET, dtype=float)
     arr = arr[arr[:, 0].argsort()]
-    # Remove duplicate frequency points (keep first occurrence)
     _, unique_idx = np.unique(arr[:, 0], return_index=True)
     return arr[unique_idx]
 
 
-
-# ─── File parsing ─────────────────────────────────────────────────────────────
-
 def parse_txt(path):
-    """
-    Parse measurement file. Supports:
-      comma-separated .txt/.csv : freq,dB
-      tab-separated .csv        : freq<TAB>dB
-      AutoEQ .csv with header   : frequency,raw,smoothed  (uses raw col)
-      Any non-numeric rows are skipped automatically.
-    """
     pts = []
     with open(path, encoding="utf-8", errors="ignore") as f:
         lines = f.readlines()
 
-    # Auto-detect delimiter and dB column from first parseable data line
     delimiter = ","
     db_col    = 1
     for line in lines:
         s = line.strip()
         if not s or s.startswith("#"):
             continue
-        # Try tab
         tp = s.split("\t")
         if len(tp) >= 2:
             try:
@@ -544,7 +522,6 @@ def parse_txt(path):
                 break
             except ValueError:
                 pass
-        # Try comma
         cp = s.split(",")
         if len(cp) >= 2:
             try:
@@ -552,7 +529,6 @@ def parse_txt(path):
                 delimiter = ","; db_col = 1
                 break
             except ValueError:
-                # Header row — check if AutoEQ format (frequency,raw,smoothed)
                 header_lower = s.lower()
                 if "raw" in header_lower:
                     cols = [c.strip().lower() for c in cp]
@@ -579,18 +555,15 @@ def parse_txt(path):
 
     arr = np.array(pts)
 
-    # Validate: remove duplicate frequencies (keep last)
     _, unique_idx = np.unique(arr[:, 0], return_index=True)
     arr = arr[unique_idx]
 
-    # Validate: dB values in reasonable range [-120, 120]
     bad_db = (arr[:, 1] < -120) | (arr[:, 1] > 120)
     if bad_db.any():
         n_bad = bad_db.sum()
         arr   = arr[~bad_db]
         print(f"  WARNING: {n_bad} point(s) with dB outside [-120, 120] removed from {path}")
 
-    # Validate: frequency range [1, 100000]
     bad_f = (arr[:, 0] < 1.0) | (arr[:, 0] > 100000.0)
     if bad_f.any():
         arr = arr[~bad_f]
@@ -608,38 +581,24 @@ def make_interp(pts):
     )
 
 
-# ─── Multi-point normalization ────────────────────────────────────────────────
-
 def compute_norm_offset(l_pts, r_fn, tgt_fn, norm_freq=1000.0,
                         norm_lo=500.0, norm_hi=2000.0):
-    """
-    Compute normalization offset so that correction ≈ 0 near norm_freq.
-
-    Uses a window-averaged approach in [norm_lo, norm_hi] Hz, weighted
-    toward norm_freq. This is more robust than single-point normalization
-    against local measurement noise or coupler artifacts at the anchor.
-    """
     freqs   = l_pts[:, 0]
     avg_db  = (l_pts[:, 1] + r_fn(freqs)) / 2
     raw_corr = tgt_fn(freqs) - avg_db
 
     mask = (freqs >= norm_lo) & (freqs <= norm_hi)
     if mask.sum() < 2:
-        # Fallback: single-point at norm_freq
         avg_fn = interpolate.interp1d(freqs, avg_db,
                      bounds_error=False, fill_value="extrapolate")
         return float(tgt_fn(norm_freq)) - float(avg_fn(norm_freq))
 
-    # Gaussian-weighted average centered at norm_freq
-    # σ = 0.3 oct gives ~±0.3 oct influence radius
     log_f_w   = np.log2(freqs[mask])
     log_f_c   = np.log2(norm_freq)
     weights   = np.exp(-0.5 * ((log_f_w - log_f_c) / 0.3) ** 2)
     weights  /= weights.sum() + 1e-12
     return float(np.sum(raw_corr[mask] * weights))
 
-
-# ─── Scalar biquad (simulation + true-peak) ──────────────────────────────────
 
 def biquad_peak_db(freqs, fc, gain_db, Q, fs=48000.0):
     A     = 10 ** (gain_db / 40.0)
@@ -656,13 +615,7 @@ def biquad_peak_db(freqs, fc, gain_db, Q, fs=48000.0):
     return 20 * np.log10(np.maximum(np.abs(H), 1e-10))
 
 
-# ─── Vectorized biquad + analytical gradient ─────────────────────────────────
-
 def biquad_response_and_grad(f_grid, fcs, gains, Qs, fs=48000.0):
-    """
-    Vectorized exact biquad: N bands at M frequencies.
-    Returns resp (N,M) dB, summed (M,) dB, dR_dg (N,M), dR_dlfc (N,M), dR_dlq (N,M).
-    """
     N = len(fcs); M = len(f_grid)
     LOG10 = np.log(10.0); kappa = LOG10 / 40.0
 
@@ -692,7 +645,6 @@ def biquad_response_and_grad(f_grid, fcs, gains, Qs, fs=48000.0):
     def _chain(dBz, dAz):
         return (20 / LOG10) * np.real(np.conj(H) * (dBz - H * dAz) / Az) / absH2
 
-    # dR/dg
     db0n_dg = kappa * (p + q + 2*p*q) / a0_sq
     db1n_dg = -2 * cos0 * q * kappa   / a0_sq
     db2n_dg = kappa * (q - p - 2*p*q) / a0_sq
@@ -700,7 +652,6 @@ def biquad_response_and_grad(f_grid, fcs, gains, Qs, fs=48000.0):
     dR_dg   = _chain(db0n_dg + db1n_dg*z1 + db2n_dg*z2,
                      db1n_dg*z1 + da2n_dg*z2)
 
-    # dR/d(log fc)
     dw0_dfc    = 2 * np.pi / fs
     dalpha_dfc = cos0 / (2 * Qs_) * dw0_dfc
     dp_dfc     = dalpha_dfc * A_; dq_dfc = dalpha_dfc / A_
@@ -712,7 +663,6 @@ def biquad_response_and_grad(f_grid, fcs, gains, Qs, fs=48000.0):
     dR_dlfc  = fcs_ * _chain(db0n_dfc + db1n_dfc*z1 + db2n_dfc*z2,
                               db1n_dfc*z1 + da2n_dfc*z2)
 
-    # dR/d(log Q)
     db0n_dQ = (q - p)   / (Qs_ * a0_sq)
     db1n_dQ = -2*cos0*q / (Qs_ * a0_sq)
     db2n_dQ = (p + q)   / (Qs_ * a0_sq)
@@ -722,8 +672,6 @@ def biquad_response_and_grad(f_grid, fcs, gains, Qs, fs=48000.0):
 
     return resp, summed, dR_dg, dR_dlfc, dR_dlq
 
-
-# ─── Adaptive Q ───────────────────────────────────────────────────────────────
 
 def adaptive_q(fc):
     if   fc <    80: return 0.50
@@ -738,42 +686,68 @@ def adaptive_q(fc):
     else:            return 12.00
 
 
-# ─── Band distribution (warped presence density) ─────────────────────────────
-
 def make_bands(freq_start, freq_end, n_bands=64, warp=True,
-               presence_lo=2000.0, presence_hi=8000.0, presence_boost=2.5):
+               presence_lo=2000.0, presence_hi=8000.0, presence_boost=2.2,
+               bass_lo=20.0, bass_hi=200.0, bass_boost=0.8,
+               treble_lo=8000.0, treble_hi=20000.0, treble_boost=1.8):
     if not warp:
         fcs = np.logspace(np.log10(freq_start), np.log10(freq_end), n_bands)
         return fcs, np.array([adaptive_q(fc) for fc in fcs])
 
     log_s   = np.log10(freq_start); log_e = np.log10(freq_end)
-    log_plo = np.log10(max(presence_lo, freq_start * 1.001))
-    log_phi = np.log10(min(presence_hi, freq_end   * 0.999))
-    s1 = max(log_plo - log_s,  0.0); s2 = max(log_phi - log_plo, 0.0)
-    s3 = max(log_e   - log_phi, 0.0)
-    total = s1 + presence_boost * s2 + s3
+
+    log_blo  = np.log10(max(bass_lo,     freq_start * 1.001))
+    log_bhi  = np.log10(min(bass_hi,     freq_end   * 0.999))
+    log_plo  = np.log10(max(presence_lo, freq_start * 1.001))
+    log_phi  = np.log10(min(presence_hi, freq_end   * 0.999))
+    log_tlo  = np.log10(max(treble_lo,   freq_start * 1.001))
+    log_thi  = np.log10(min(treble_hi,   freq_end   * 0.999))
+
+    def seg(lo, hi): return max(hi - lo, 0.0)
+
+    s_bass  = seg(log_blo, log_bhi)
+    s_lomid = seg(log_bhi, log_plo)
+    s_pres  = seg(log_plo, log_phi)
+    s_treb  = seg(log_tlo, log_thi)
+    s_rest  = max((log_e - log_s)
+                  - s_bass - s_lomid - s_pres - s_treb, 0.0)
+
+    total = (bass_boost * s_bass + s_lomid +
+             presence_boost * s_pres + treble_boost * s_treb + s_rest)
+
     if total <= 0:
         fcs = np.logspace(log_s, log_e, n_bands)
         return fcs, np.array([adaptive_q(fc) for fc in fcs])
 
-    cum1 = s1 / total; cum2 = cum1 + presence_boost * s2 / total
-    u = np.linspace(0.0, 1.0, n_bands); log_fcs = np.zeros(n_bands)
+    c_bass  = bass_boost     * s_bass  / total
+    c_lomid = c_bass  + s_lomid        / total
+    c_pres  = c_lomid + presence_boost * s_pres  / total
+    c_treb  = c_pres  + treble_boost   * s_treb  / total
+
+    u = np.linspace(0.0, 1.0, n_bands)
+    log_fcs = np.zeros(n_bands)
+
     for i, ui in enumerate(u):
-        if s2 == 0 or ui <= cum1:
-            t = (ui / cum1) if cum1 > 0 else 0.0
-            log_fcs[i] = log_s + t * s1
-        elif ui <= cum2:
-            t = (ui - cum1) / (cum2 - cum1)
-            log_fcs[i] = log_plo + t * s2
+        if ui <= c_bass and s_bass > 0:
+            t = ui / c_bass
+            log_fcs[i] = log_blo + t * s_bass
+        elif ui <= c_lomid and s_lomid > 0:
+            t = (ui - c_bass) / (c_lomid - c_bass)
+            log_fcs[i] = log_bhi + t * s_lomid
+        elif ui <= c_pres and s_pres > 0:
+            t = (ui - c_lomid) / (c_pres - c_lomid)
+            log_fcs[i] = log_plo + t * s_pres
+        elif ui <= c_treb and s_treb > 0:
+            t = (ui - c_pres) / (c_treb - c_pres)
+            log_fcs[i] = log_tlo + t * s_treb
         else:
-            denom = 1.0 - cum2
-            t = (ui - cum2) / denom if denom > 0 else 1.0
-            log_fcs[i] = log_phi + t * s3
+            denom = max(1.0 - c_treb, 1e-9)
+            t = (ui - c_treb) / denom
+            log_fcs[i] = log_thi + t * (log_e - log_thi)
+
     fcs = np.clip(10 ** log_fcs, freq_start, freq_end)
     return fcs, np.array([adaptive_q(fc) for fc in fcs])
 
-
-# ─── Perceptual weighting ─────────────────────────────────────────────────────
 
 def perceptual_weights(f_fit, peak=2.5):
     log_f = np.log10(f_fit); dlog = np.gradient(log_f)
@@ -793,40 +767,18 @@ def perceptual_weights(f_fit, peak=2.5):
     return base * perc
 
 
-
 def minimum_phase_correction(c_fit, f_fit, f_start=20.0, f_end=20000.0,
                              fs=48000.0):
-    """
-    [v15] Minimum-phase reconstruction with curvature + ERB blend.
-
-    v15: adds spectral curvature term to ERB sigmoid:
-      w_mp = sigmoid(k_erb*(ERB_n - pivot) - 2.0*curv_n)
-    where curv_n = |d²c/d(logf)²| / (|d²c/d(logf)²| + 2).
-    Narrow resonances (high curvature) → higher mp blend.
-    Broad tonal tilt (low curvature) → lower mp blend, preserve measurement.
-
-    v14: ERB-based continuous sigmoid, no piecewise artifacts.
-    v11: natural log amplitude fix.
-    v8:  linear frequency grid.
-    """
-    N_fft = 4096
+    N_fft = 2048
     f_nyq = fs / 2.0
 
-    # Step 1: Dense linear frequency grid
     f_lin = np.linspace(0, f_nyq, N_fft // 2 + 1)  # 0 to fs/2
 
-    # Step 2: Interpolate correction to linear grid
-    # Extrapolate with edge values outside measurement range
     c_lin = np.interp(f_lin,
                       np.clip(f_fit, f_start, f_end),
                       c_fit,
                       left=c_fit[0], right=c_fit[-1])
 
-    # Step 3: Build full two-sided spectrum (symmetric for real signal)
-    # Cepstrum minimum-phase requires log-amplitude in NATURAL log units.
-    # c_lin is in dB → convert: ln|H| = c_lin * ln(10)/20
-    # Without this conversion, phase reconstruction is skewed proportionally
-    # to correction magnitude — most audible at large HF corrections (>6 dB).
     _LN10_OVER_20 = np.log(10.0) / 20.0
     c_lin_nats = c_lin * _LN10_OVER_20   # dB → natural log amplitude
 
@@ -834,89 +786,42 @@ def minimum_phase_correction(c_fit, f_fit, f_start=20.0, f_end=20000.0,
     C_full[:N_fft//2+1] = c_lin_nats
     C_full[N_fft//2+1:] = c_lin_nats[-2:0:-1]  # mirror for real
 
-    # Step 4: Cepstrum — IFFT of log-magnitude
     cepstrum = np.fft.ifft(C_full).real
 
-    # Step 5: Minimum phase operation — zero negative quefrency
     cepstrum_mp = cepstrum.copy()
     half = N_fft // 2
     cepstrum_mp[half+1:]  = 0.0   # zero negative quefrency
     cepstrum_mp[1:half]  *= 2.0   # double positive (energy conservation)
     cepstrum_mp[0]       *= 1.0   # DC stays
 
-    # Step 6: Back to frequency domain — result is still in natural log units
     C_mp = np.fft.fft(cepstrum_mp).real
     c_lin_mp_nats = C_mp[:N_fft//2+1]
 
-    # Convert back to dB for blending with original c_fit
     c_lin_mp = c_lin_mp_nats / _LN10_OVER_20
 
-    # Step 7: Interpolate back to original log f_fit grid
     c_fit_mp = np.interp(f_fit, f_lin, c_lin_mp)
 
-    # [v14] ERB-based frequency-dependent min-phase blend.
-    # Replaces piecewise heuristic (v13) with continuous auditory filter model.
-    #
-    # Psychoacoustic basis (Glasberg & Moore 1990):
-    #   ERB(f) = 24.7 * (4.37*f/1000 + 1)  Hz
-    # Normalized ERB_n: narrow auditory filter → phase changes more audible.
-    # Min-phase blend weight ∝ phase sensitivity ∝ 1/ERB_n (wider filter = less sensitive).
-    #
-    # Sigmoid mapping: mp_blend = 0.40 + 0.50 * sigmoid(-k * (ERB_n - ERB_pivot))
-    # - Below pivot (narrow filter, HF): high blend → more min-phase
-    # - Above pivot (wide filter, presence): low blend → preserve measurement magnitude
-    # - Clipped to [0.40, 0.90] to maintain practical bounds
-    #
-    # Auditory insight:
-    #   Bass: ERB wide (low freq resolution) → actually LESS phase sensitive in
-    #         absolute terms but EQ there needs coherent sub-bass → floor at 0.85
-    #   Presence 2-6kHz: ERB narrow → filter resolves phase BUT magnitude
-    #         accuracy dominates → cap at 0.45 to preserve correction shape
-    #   Air: ERB moderately narrow → spatial cues → high blend to ~0.78
 
     def erb_hz(f):
-        """Glasberg & Moore ERB in Hz."""
         return 24.7 * (4.37 * np.asarray(f) / 1000.0 + 1.0)
 
     def erb_normalized(f):
-        """ERB normalized to value at 1 kHz (= 1.0 at 1 kHz)."""
         return erb_hz(f) / erb_hz(1000.0)
 
     erb_n     = erb_normalized(f_fit)
     erb_pivot = erb_normalized(3000.0)
     k_erb     = 4.0
 
-    # [v15] Curvature-aware blend: combine ERB model with spectral curvature.
-    # Second derivative of correction curve signals local shape:
-    #   Large curvature → narrow resonance → min-phase more appropriate
-    #   Small curvature → broad tilt       → preserve measurement shape (less mp)
-    #
-    # Combined formula:
-    #   w_mp = sigmoid(a*curv_n + b*erb_term + c*|gain_local|)
-    # where erb_term = k_erb*(erb_n - erb_pivot) from existing ERB model.
-    #
-    # Curvature computed via second-order finite difference in log-freq.
-    # Normalized to [0,1] range using soft saturation.
 
-    # [v17] Spline-based curvature — replaces noisy double finite-diff (v15).
-    # Problem: np.gradient twice on non-uniform log-freq grid amplifies HF noise,
-    # causing mp_blend to "panic" at measurement ripple and over-apply min-phase.
-    # Fix: fit smooth cubic spline to correction curve in log-freq domain,
-    # then compute analytical second derivative from spline coefficients.
-    # Savitzky-Golay pre-smoothing removes sub-threshold ripple before spline fit.
     from scipy import ndimage as _ndimage
     from scipy.interpolate import UnivariateSpline
 
     log_f_fit   = np.log2(np.maximum(f_fit, 1.0))
 
-    # Pre-smooth with Savitzky-Golay equivalent (gaussian in log-freq, σ=0.1 oct)
     dlog_mean = float(np.mean(np.diff(log_f_fit)))
     sg_sigma  = max(0.1 / dlog_mean, 1.0)
     c_smooth_for_curv = ndimage.gaussian_filter1d(c_fit, sigma=sg_sigma)
 
-    # Fit cubic spline — smoothing factor normalized per-octave, not per-point.
-    # Per-point scaling (s=N*0.02) over-smooths dense measurements and
-    # under-smooths sparse ones. Per-octave is density-invariant.
     n_oct  = float(np.log2(f_fit[-1] / max(f_fit[0], 1.0)))
     s_val  = max(n_oct * 0.4, 1.0)   # ~0.4 dB² per octave tolerance
     try:
@@ -925,23 +830,15 @@ def minimum_phase_correction(c_fit, f_fit, f_start=20.0, f_end=20000.0,
         spl_d2 = spl.derivative(n=2)
         abs_curv = np.abs(spl_d2(log_f_fit))
     except Exception:
-        # Fallback to finite diff if spline fails
         dc_dlogf   = np.gradient(c_smooth_for_curv, log_f_fit)
         abs_curv   = np.abs(np.gradient(dc_dlogf, log_f_fit))
 
-    # Normalize: soft saturation so curvature=1 at ~2 dB/oct²
     curv_n      = abs_curv / (abs_curv + 2.0)   # range [0,1), ~0.5 at 2 dB/oct²
 
-    # Combined sigmoid blend weight
-    # a=2.0: curvature contribution
-    # ERB term from existing k_erb*(erb_n - erb_pivot)
-    # Result: narrow resonance + high ERB pivot → high mp blend
-    #         broad tilt + low ERB → lower mp blend
     raw_blend   = 0.40 + 0.50 / (1.0 + np.exp(
         k_erb * (erb_n - erb_pivot) - 2.0 * curv_n
     ))
 
-    # Sub-bass floor: punch coherence
     sub_bass_boost = 0.85 * np.exp(-((f_fit - 60.0) ** 2) / (2 * 80.0 ** 2))
     mp_blend = np.maximum(raw_blend, sub_bass_boost)
     mp_blend = np.clip(mp_blend, 0.40, 0.92)
@@ -949,14 +846,7 @@ def minimum_phase_correction(c_fit, f_fit, f_start=20.0, f_end=20000.0,
     return mp_blend * c_fit_mp + (1.0 - mp_blend) * c_fit
 
 
-# ─── [v7] A-weighting masking curve ──────────────────────────────────────────
-#
-#  Approximates human hearing sensitivity (ISO 226 / A-weighting).
-#  Used as additional weight multiplier: frequencies where hearing is
-#  more sensitive get higher weight in the optimization.
-
 def a_weighting_db(freqs):
-    """A-weighting in dB, normalized to 0 dB at 1 kHz."""
     f = np.asarray(freqs, dtype=float)
     f2 = f ** 2
     num   = 12194.0**2 * f2**2
@@ -972,23 +862,13 @@ def a_weighting_db(freqs):
 
 
 def masking_weights(f_fit):
-    """
-    A-weighting based masking multiplier.
-    Converts A-weighting dB to linear weight, normalized to mean=1.
-    Frequencies where hearing is more sensitive get higher priority.
-    """
     aw = a_weighting_db(f_fit)
     aw_shifted = aw - aw.min()
     w = 10 ** (aw_shifted / 20.0)
     return w / (w.mean() + 1e-12)
 
 
-
 def perceptual_pole_weight(fc):
-    """
-    [v9] Frequency-dependent perceptual weight for pole radius penalty.
-    Higher weight = optimizer more strongly avoids resonant filters here.
-    """
     if   fc <   150: return 0.3
     elif fc <   500: return 0.6
     elif fc <  2000: return 1.2
@@ -999,15 +879,8 @@ def perceptual_pole_weight(fc):
 
 
 def biquad_pole_radius(fc, Q, fs=48000.0):
-    """
-    Compute pole radius of a biquad peaking filter.
-    For a 2nd-order IIR: poles at r*exp(±j*w0)
-    r = sqrt(a2) where a2 is the denominator coefficient.
-    """
     w0    = 2 * np.pi * fc / fs
     alpha = np.sin(w0) / (2.0 * Q)
-    # Denominator: 1 + alpha/A*z^-1 + (1-alpha/A)*z^-2 — but gain-independent
-    # For unit-gain biquad (A=1), pole radius:
     a0 = 1.0 + alpha
     a2 = (1.0 - alpha) / a0
     r  = np.sqrt(max(abs(a2), 1e-10))
@@ -1015,31 +888,22 @@ def biquad_pole_radius(fc, Q, fs=48000.0):
 
 
 def pole_radius_penalty(fcs, gains, Qs, lam_gd, fs=48000.0, hf_gamma=0.7):
-    """
-    [v12] Perceptually + HF-proximity weighted analytic pole radius penalty:
-         λ_gd × Σ_k  W_perc(fc_k) × W_hf(fc_k) × g_k² / (1 - r_k)²
-
-    v12 adds HF proximity weight W_hf(fc) = (fc / (fs/2))^γ, γ=0.7.
-
-    DSP rationale: bilinear warping compresses HF frequencies toward Nyquist.
-    A pole at 15 kHz with the same radius as one at 1 kHz causes substantially
-    more group delay distortion because it sits closer to the unit circle in
-    the warped z-plane. The (fc/fnyq)^γ term corrects for this asymmetry —
-    optimizer becomes progressively more conservative toward Nyquist.
-    """
-    f_nyq = fs / 2.0
-    penalty = 0.0
-    for fc, g, Q in zip(fcs, gains, Qs):
-        r      = biquad_pole_radius(fc, Q, fs)
-        w_perc = perceptual_pole_weight(fc)
-        w_hf   = (fc / f_nyq) ** hf_gamma      # HF proximity: rises toward Nyquist
-        pen    = w_perc * w_hf * (g ** 2) / max((1.0 - r) ** 2, 1e-6)
-        penalty += pen
-    return lam_gd * penalty
+    f_nyq  = fs / 2.0
+    fcs_a  = np.asarray(fcs, dtype=float)
+    g_a    = np.asarray(gains, dtype=float)
+    Q_a    = np.asarray(Qs, dtype=float)
+    w0     = 2 * np.pi * fcs_a / fs
+    alpha  = np.sin(w0) / (2.0 * Q_a)
+    a2     = (1.0 - alpha) / (1.0 + alpha)
+    r      = np.sqrt(np.maximum(np.abs(a2), 1e-10))
+    r      = np.minimum(r, 0.9999)
+    w_perc = np.array([perceptual_pole_weight(fc) for fc in fcs_a])
+    w_hf   = (fcs_a / f_nyq) ** hf_gamma
+    pen    = w_perc * w_hf * g_a**2 / np.maximum((1.0 - r)**2, 1e-6)
+    return float(lam_gd * pen.sum())
 
 
 def pole_radius_gradient(fcs, gains, Qs, lam_gd, fs=48000.0, hf_gamma=0.7):
-    """Analytical gradient of pole_radius_penalty wrt gains (vectorized)."""
     f_nyq  = fs / 2.0
     fcs_a  = np.asarray(fcs); g_a = np.asarray(gains); Q_a = np.asarray(Qs)
     w0     = 2 * np.pi * fcs_a / fs
@@ -1052,9 +916,7 @@ def pole_radius_gradient(fcs, gains, Qs, lam_gd, fs=48000.0, hf_gamma=0.7):
     return lam_gd * w_perc * w_hf * 2.0 * g_a / np.maximum((1.0 - r) ** 2, 1e-6)
 
 
-
 def biquad_complex_response(freqs, fc, gain_db, Q, fs=48000.0):
-    """Complex frequency response H(e^jw) of a biquad peaking filter."""
     A     = 10 ** (gain_db / 40.0)
     w0    = 2 * np.pi * fc / fs
     alpha = np.sin(w0) / (2.0 * Q)
@@ -1071,11 +933,6 @@ def biquad_complex_response(freqs, fc, gain_db, Q, fs=48000.0):
 
 
 def phase_slope_penalty(freqs, fcs, gains, Qs, lam_ph, fs=48000.0):
-    """
-    [v17] Phase slope penalty: λ_ph × Σ_i w_perc(f_i) × (Δφ/Δlogf)²
-    Penalizes rapid phase slope changes (= group delay spikes).
-    Returns (penalty_scalar, gradient_wrt_gains).
-    """
     if lam_ph == 0.0:
         return 0.0, np.zeros(len(gains))
 
@@ -1083,7 +940,6 @@ def phase_slope_penalty(freqs, fcs, gains, Qs, lam_ph, fs=48000.0):
     M  = len(freqs)
     log_f = np.log2(np.maximum(freqs, 1.0))
 
-    # Total phase response
     H_total = np.ones(M, dtype=complex)
     H_each  = []
     for fc, g, Q in zip(fcs, gains, Qs):
@@ -1093,42 +949,27 @@ def phase_slope_penalty(freqs, fcs, gains, Qs, lam_ph, fs=48000.0):
 
     phase_total = np.unwrap(np.angle(H_total))
 
-    # Phase slope via gradient in log-freq
     dlogf   = np.gradient(log_f)
     dph_dlf = np.gradient(phase_total, log_f)    # Δφ/Δlogf
 
-    # Perceptual weight: presence region gets more attention
     w_ph = np.array([perceptual_pole_weight(f) for f in freqs], dtype=float)
     w_ph = w_ph / (w_ph.mean() + 1e-12)
 
     penalty = float(lam_ph * np.sum(w_ph * dph_dlf ** 2))
 
-    # Gradient: ∂P/∂g_k = λ_ph × Σ_i 2 w_ph_i × dph_dlf_i × ∂(dph_dlf)/∂g_k
-    # ∂φ_total/∂g_k = Im(∂H_k/∂g_k / H_k) summed over active chain
-    # For biquad: ∂H_k/∂g_k ≈ H_k × ln(10)/20 × (difference of partial responses)
-    # Simplified: ∂φ_k/∂g_k = Im(d ln H_k / d g_k)
     _LN10_OVER_20 = np.log(10.0) / 20.0
     grad = np.zeros(N)
     for k, (fc, g, Q, Hk) in enumerate(zip(fcs, gains, Qs, H_each)):
-        # Analytical ∂φ_k/∂g_k = Im(∂H_k/H_k ∂g_k)
-        # For peaking biquad: ∂H/∂g ≈ H * (d/dg ln H) ≈ H * ∂(dB response)/∂g * ln10/20
-        # Approximate via: Im( H_k_deriv / H_k ) where H_k_deriv from finite diff in g
         eps = 0.01
         Hk_p = biquad_complex_response(freqs, fc, g + eps, Q, fs)
         dHk_dg = (Hk_p - Hk) / eps
-        # ∂φ_k/∂g_k = Im(dHk/dg / Hk) ... per frequency
         dphi_dg_k = np.imag(dHk_dg / (Hk + 1e-30))
-        # Phase slope gradient via finite diff of phase gradient
         dphi_slope_dg = np.gradient(dphi_dg_k, log_f)
         grad[k] = float(lam_ph * 2.0 * np.sum(w_ph * dph_dlf * dphi_slope_dg))
 
     return penalty, grad
 
 def freq_dependent_q_scale(fc):
-    """
-    Returns Q-penalty scale factor based on perceptual sensitivity.
-    1.0 = baseline, higher = stricter Q constraint at that frequency.
-    """
     if   fc <   200: return 0.2   # sub-bass/bass: wide filters OK
     elif fc <   500: return 0.5   # upper bass
     elif fc <  1000: return 0.8   # low-mid
@@ -1141,12 +982,6 @@ def freq_dependent_q_scale(fc):
 
 
 def q_log_penalty(Qs, gains, fcs=None):
-    """
-    [v8] Frequency-dependent Q log-penalty:
-         λ_q × Σ scale(fc_k) × (log Q_k)² × |gain_k|
-
-    If fcs is None, falls back to flat (v7 behavior).
-    """
     if fcs is None:
         scales = np.ones(len(Qs))
     else:
@@ -1155,7 +990,6 @@ def q_log_penalty(Qs, gains, fcs=None):
 
 
 def q_penalty_gradient(Qs, gains, fcs=None):
-    """Analytical gradient of q_log_penalty wrt gains."""
     if fcs is None:
         scales = np.ones(len(Qs))
     else:
@@ -1164,18 +998,7 @@ def q_penalty_gradient(Qs, gains, fcs=None):
     return scales * (np.log(np.maximum(Qs, 0.1)) ** 2) * sign_g
 
 
-
 def estimate_hf_rolloff_slope(f_fit, raw_avg_db, f_lo=6000.0, f_hi=14000.0):
-    """
-    [v11] Estimate HF rolloff slope (dB/octave) from RAW measurement average.
-
-    Fix vs v8-v10: previously used c_fit (correction curve) which contains
-    target tilt, presence boost, and normalization offset — NOT driver response.
-    Using raw measurement gives the true driver rolloff characteristic.
-
-    raw_avg_db : (L+R)/2 raw measurement in dB, same frequency grid as f_fit
-    Returns slope in dB/octave (negative = rolloff, positive = rising).
-    """
     mask = (f_fit >= f_lo) & (f_fit <= f_hi)
     if mask.sum() < 3:
         return 0.0
@@ -1187,29 +1010,11 @@ def estimate_hf_rolloff_slope(f_fit, raw_avg_db, f_lo=6000.0, f_hi=14000.0):
 
 def driver_capability_penalty(fcs, gains, hf_threshold=8000.0,
                               hf_max_boost=6.0, rolloff_slope=0.0):
-    """
-    [v8+] Multi-tier frequency-dependent max boost cap.
-    Prevents optimizer from forcing boost into rolled-off HF regions.
-
-    Tiers (max boost):
-      < 10 kHz  : hf_max_boost (default 6 dB) — normal, rolloff-adjusted
-      10-14 kHz : 4.0 dB
-      14-16 kHz : 2.5 dB
-      16-18 kHz : 1.5 dB
-      > 18 kHz  : 0.8 dB
-
-    Additionally tightened by rolloff slope (steeper rolloff → lower cap).
-    """
     slope_penalty = min(rolloff_slope * 0.5, 0.0)  # negative if steep rolloff
 
     fcs_a = np.asarray(fcs, dtype=float)
     g_a   = np.asarray(gains, dtype=float)
 
-    # Per-band cap based on frequency tier
-    # Below 15kHz: normal cap, no restriction
-    # 15-17kHz: max +2.5 dB — soft cap entering rolloff zone
-    # 17-19kHz: max +1.5 dB — steep cap
-    # Above 19kHz: max +0.8 dB — virtually frozen
     caps = np.where(fcs_a < 15000,
                     max(hf_max_boost + slope_penalty, 2.0),
            np.where(fcs_a < 17000,
@@ -1222,8 +1027,6 @@ def driver_capability_penalty(fcs, gains, hf_threshold=8000.0,
     return float((excess ** 2).sum())
 
 
-# ─── Per-band ridge lambda ────────────────────────────────────────────────────
-
 def per_band_lambda(fcs, lam_base):
     lam = np.ones(len(fcs)) * lam_base
     for k, fc in enumerate(fcs):
@@ -1233,38 +1036,15 @@ def per_band_lambda(fcs, lam_base):
     return lam
 
 
-# ─── Freq-dependent smoothness matrix ────────────────────────────────────────
-
 def make_third_deriv_matrix(N, lam_td):
-    """
-    [v10] Third-derivative (jerk) smoothness penalty matrix.
-
-    Penalizes:  Σ_k (g[k] - 3g[k+1] + 3g[k+2] - g[k+3])²
-
-    Properties vs first-derivative smoothness:
-    - Allows broad tilt and wide peaks (first derivative can be nonzero)
-    - Penalizes only rapid wiggles — the "metallic DSP" artifact pattern
-    - Spatial micro-cue preservation: inter-aural micro-ripple structure
-      that carries binaural localization cues is not disrupted by broad
-      corrections, only by localized wiggles
-    - Near-zero cost for N<4; safely returns zeros in that case
-
-    Analytical form: M = D3^T @ D3 where D3 is the 3rd-difference operator.
-    Integrated into total regularization: reg += lam_td * M_td
-    """
     if N < 4:
         return np.zeros((N, N))
-    # Build 3rd-difference operator D3 ∈ R^{(N-3) x N}
     rows = N - 3
     D3 = np.zeros((rows, N))
     coeffs = np.array([1.0, -3.0, 3.0, -1.0])
     for i in range(rows):
         D3[i, i:i+4] = coeffs
     M_td = D3.T @ D3
-    # [v11] Normalize by mean diagonal so lam_td scaling is predictable
-    # regardless of N. Without normalization, penalty grows with N^2 and
-    # lam_td tuning becomes trial-and-error per band count.
-    # mean_diag ≈ 20 for N=64 (D3 rows have norm² ≈ 20) — normalize to 1.
     diag_vals = np.diag(M_td)
     mean_diag = diag_vals[diag_vals > 0].mean() if (diag_vals > 0).any() else 1.0
     M_td /= mean_diag
@@ -1272,11 +1052,6 @@ def make_third_deriv_matrix(N, lam_td):
 
 
 def make_smooth_matrix_freq(fcs, lam_smooth_base, lam_third_deriv=None):
-    """
-    [v10] Freq-dependent first-derivative smoothness + optional third-derivative.
-
-    lam_third_deriv: if None, uses lam_smooth_base * 0.3 (conservative default)
-    """
     N = len(fcs); s = np.ones(N - 1) * lam_smooth_base
     for k in range(N - 1):
         fc_mid = np.sqrt(fcs[k] * fcs[k + 1])
@@ -1290,13 +1065,10 @@ def make_smooth_matrix_freq(fcs, lam_smooth_base, lam_third_deriv=None):
         M[k,   k  ] += s[k]; M[k+1, k+1] += s[k]
         M[k,   k+1] -= s[k]; M[k+1, k  ] -= s[k]
 
-    # [v10-2] Add third-derivative penalty
     lam_td = lam_third_deriv if lam_third_deriv is not None else lam_smooth_base * 0.3
     M += make_third_deriv_matrix(N, lam_td)
     return M
 
-
-# ─── Band energy regularization matrix ───────────────────────────────────────
 
 def make_energy_matrix(fcs, Qs, lam_energy):
     bw   = fcs / Qs
@@ -1304,22 +1076,13 @@ def make_energy_matrix(fcs, Qs, lam_energy):
     return np.diag(lam_energy * bw_n)
 
 
-
 _LN10_OVER_20 = np.log(10.0) / 20.0
 
 def cosh_weights(c_db):
-    """
-    Row-scale weights for linear-magnitude objective.
-    s_i = cosh(c_db[i] * ln10/20): symmetric, = 1 at c=0, grows with |c|.
-    Up-weights frequency regions where large correction is needed.
-    """
     return np.cosh(c_db * _LN10_OVER_20)
 
 
-# Multi-resolution IRLS: decompose residual into macro/meso/micro layers.
-
 def smooth_residual_logfreq(residual, f_fit, sigma_oct=0.167):
-    """Single-scale gaussian smoothing (kept for compatibility)."""
     log_f  = np.log2(f_fit); dlog = np.mean(np.diff(log_f))
     if dlog <= 0: return residual.copy()
     sigma_pts = sigma_oct / dlog
@@ -1327,39 +1090,15 @@ def smooth_residual_logfreq(residual, f_fit, sigma_oct=0.167):
 
 
 def freq_jitter_smooth(c_fit, f_fit, sigma_oct=0.08):
-    """
-    [v15] Frequency jitter convolution with adaptive σ(f).
-
-    v14 used constant σ=0.08 oct everywhere. But IEM measurement uncertainty
-    varies by region:
-      Sub-bass <200 Hz  : seal variance large → wider smoothing (σ up to 0.13)
-      Mid/presence      : coupler relatively stable → σ ≈ 0.06-0.08
-      8–9 kHz           : coupler resonance shift moderate → σ ≈ 0.09
-      13–14 kHz         : insertion notch shift largest → σ up to 0.14
-      >15 kHz           : measurement noise floor → wide σ ≈ 0.12
-
-    Adaptive formula: σ(f) = σ_base + σ_var * (log2(f/1kHz))²
-    This gives σ that grows away from 1 kHz in both directions on log scale.
-
-    Implemented via multi-scale gaussian blend weighted by regional σ map,
-    approximating spatially-varying convolution without per-point computation.
-    """
     log_f = np.log2(np.maximum(f_fit, 1.0))
     dlog  = np.mean(np.diff(log_f))
     if dlog <= 0:
         return c_fit.copy()
 
-    # Adaptive sigma: σ(f) = 0.055 + 0.028*(log2(f/1kHz))²
-    # At 1 kHz: σ=0.055 (tightest — most stable measurement region)
-    # At 60 Hz:  σ≈0.055+0.028*(−4.05)²≈0.515 → clamped to 0.13
-    # At 13 kHz: σ≈0.055+0.028*(3.70)²≈0.438 → clamped to 0.14
     log_1k   = np.log2(1000.0)
     sigma_f  = 0.055 + 0.028 * (log_f - log_1k) ** 2
     sigma_f  = np.clip(sigma_f, 0.045, 0.14)
 
-    # Approximate spatially-varying convolution via three-scale blend:
-    # coarse (σ=0.13), medium (σ=0.08), fine (σ=0.045)
-    # Blend weight at each point ∝ how close adaptive σ is to each scale.
     s_fine   = max(0.045 / dlog, 0.3)
     s_med    = max(0.080 / dlog, 0.3)
     s_coarse = max(0.130 / dlog, 0.3)
@@ -1368,7 +1107,6 @@ def freq_jitter_smooth(c_fit, f_fit, sigma_oct=0.08):
     c_med    = ndimage.gaussian_filter1d(c_fit, sigma=s_med)
     c_coarse = ndimage.gaussian_filter1d(c_fit, sigma=s_coarse)
 
-    # Interpolation weights: trilinear in sigma space
     s_vals = np.array([0.045, 0.080, 0.130])
     w = np.zeros((3, len(f_fit)))
     for i in range(len(f_fit)):
@@ -1391,23 +1129,6 @@ def multiresolution_irls_weights(residual, f_fit, base_weights,
                                   alpha=2.0, beta=1.2, gamma=0.15,
                                   sigma_macro=1.0, sigma_meso=0.25,
                                   cap=3.0):
-    """
-    [v12] Multi-resolution IRLS reweighting with frequency-adaptive sigma.
-
-    v12 upgrade: sigma values now scale adaptively with frequency region.
-    Fixed sigma (v10-v11) treated all regions equally, but:
-      - Bass: broad resonances need larger sigma to avoid false meso detection
-      - Presence (2-6 kHz): tight sigma captures narrow IEM resonance precisely
-      - Air (>10 kHz): micro sigma suppressed — ripple here is mostly artifact
-
-    Adaptive sigma scaling (multipliers applied to base sigma values):
-      macro: bass ×1.5, presence ×1.0, air ×0.7
-      meso:  bass ×1.8, presence ×0.6, air ×0.4
-
-    Implementation: frequency-weighted average of per-point adaptive smoothing
-    via gaussian_filter1d with spatially-varying effective sigma approximated
-    by blending three regional smoothings with perceptual masks.
-    """
     log_f = np.log2(f_fit)
     dlog  = np.mean(np.diff(log_f))
     if dlog <= 0:
@@ -1415,12 +1136,9 @@ def multiresolution_irls_weights(residual, f_fit, base_weights,
 
     abs_res = np.abs(residual)
 
-    # Frequency region masks (smooth transitions via tanh blending)
     log_500  = np.log2(500.0);  log_2k  = np.log2(2000.0)
     log_6k   = np.log2(6000.0); log_10k = np.log2(10000.0)
 
-    # Bass mask [20–500 Hz], presence mask [2–6 kHz], air mask [>10 kHz]
-    # Soft transitions using logistic function
     def soft_mask(log_f_arr, lo, hi, sharpness=3.0):
         rise = 1.0 / (1.0 + np.exp(-sharpness * (log_f_arr - lo)))
         fall = 1.0 / (1.0 + np.exp(-sharpness * (hi - log_f_arr)))
@@ -1435,7 +1153,6 @@ def multiresolution_irls_weights(residual, f_fit, base_weights,
         sigma_pts = max(sigma_oct / dlog, 0.3)
         return ndimage.gaussian_filter1d(arr, sigma=sigma_pts)
 
-    # --- Macro layer: per-region adaptive smoothing then blend ---
     mac_bass     = _smooth(abs_res, sigma_macro * 1.5)
     mac_mid      = _smooth(abs_res, sigma_macro * 1.0)
     mac_presence = _smooth(abs_res, sigma_macro * 1.0)
@@ -1445,7 +1162,6 @@ def multiresolution_irls_weights(residual, f_fit, base_weights,
                  mask_presence * mac_presence +
                  mask_air      * mac_air)
 
-    # --- Meso layer: from macro-subtracted residual, adaptive sigma ---
     abs_res_nomacro = np.maximum(abs_res - res_macro, 0.0)
     mes_bass     = _smooth(abs_res_nomacro, sigma_meso * 1.8)
     mes_mid      = _smooth(abs_res_nomacro, sigma_meso * 1.0)
@@ -1456,10 +1172,8 @@ def multiresolution_irls_weights(residual, f_fit, base_weights,
                 mask_presence * mes_presence +
                 mask_air      * mes_air)
 
-    # --- Micro layer: true remainder ---
     res_micro = np.maximum(abs_res - res_macro - res_meso, 0.0)
 
-    # Composite weight multiplier
     extra = 1.0 + alpha * res_macro + beta * res_meso + gamma * res_micro
     extra = np.clip(extra, 1.0, cap)
 
@@ -1467,8 +1181,6 @@ def multiresolution_irls_weights(residual, f_fit, base_weights,
     W2 = W2 / (W2.sum() + 1e-12) * len(W2)
     return W2
 
-
-# ─── Adaptive fc bounds ───────────────────────────────────────────────────────
 
 def compute_adaptive_fc_bounds(fcs, f_fit, residual, fc_range_base,
                                min_range=0.08, max_range=0.35):
@@ -1497,49 +1209,10 @@ def compute_adaptive_fc_bounds(fcs, f_fit, residual, fc_range_base,
     return fc_ranges
 
 
-# ─── [v6] Exact-biquad IRLS gain optimizer ────────────────────────────────────
-#
-#  v1–v5: IRLS objective = ‖filter_shape(fcs,Qs) @ g - c_fit‖²  (approx)
-#  v6:    IRLS objective = ‖biquad_summed(fcs,Qs,g) - c_fit‖²   (exact)
-#
-#  Since biquad_summed is nonlinear in g, we cannot use a direct matrix solve
-#  for the warm start. Instead:
-#
-#  [v6-2] Gauss-Newton warm start:
-#    At g=0, dR_dg is the biquad Jacobian wrt gain (linear in g at g≈0 since
-#    biquad is approximately linear for small gains). We build a local linear
-#    approximation:
-#       biquad_summed(g) ≈ biquad_summed(0) + dR_dg|_{g=0} @ g
-#    and solve one regularized least-squares step. This gives a much better
-#    initial point than cold start.
-#
-#  [v6-3] Full nonlinear biquad IRLS:
-#    After warm start, L-BFGS-B minimizes the full nonlinear biquad objective
-#    using analytical gradient dR_dg @ w_r (sum over frequency axis).
-#    cosh row-weighting applied before optimization.
-#    Two-pass IRLS: pass-2 re-weights by smoothed residual, cap at 3×.
-
 def optimize_gains_biquad(fcs, Qs, f_fit, c_fit, weights, lam_base,
                           M_smooth, max_iter, lam_energy=0.05, fs=48000.0,
                           lam_q=0.02, lam_gd=0.001, lam_driver=0.5,
                           use_minphase=True, raw_avg_db=None, lam_ph=0.0005):
-    """
-    [v10] Psychoacoustic-aware exact-biquad IRLS gain optimizer.
-
-    v10 upgrades over v9:
-      [v10-1] Multi-resolution IRLS reweighting (macro/meso/micro layers)
-      [v10-2] Third-derivative smoothness penalty in regularization matrix
-
-    v9 upgrades over v8:
-      [v9-1] Perceptually-weighted pole radius penalty (presence 3x heavier)
-      [v9-2] Post-joint realloc in main() flow
-
-    v8 upgrades over v7:
-      [v8-1] Min phase on LINEAR freq grid
-      [v8-2] Pole radius penalty (analytical O(N))
-      [v8-3] Frequency-dependent Q penalty
-      [v8-4] Dynamic driver HF constraint
-    """
     N      = len(fcs)
     Qs_arr = np.array([adaptive_q(fc) for fc in fcs]) if Qs is None else np.array(Qs)
     lam_diag = np.diag(per_band_lambda(fcs, lam_base))
@@ -1553,7 +1226,7 @@ def optimize_gains_biquad(fcs, Qs, f_fit, c_fit, weights, lam_base,
 
     c_fit_opt = freq_jitter_smooth(c_fit_opt, f_fit, sigma_oct=0.08)
     if raw_avg_db is not None:
-        raw_fit = np.interp(f_fit, f_fit, raw_avg_db)  # already on same grid
+        raw_fit = raw_avg_db  # already on same grid — no-op interp removed
         rolloff_slope = estimate_hf_rolloff_slope(f_fit, raw_fit)
     else:
         rolloff_slope = 0.0
@@ -1573,7 +1246,6 @@ def optimize_gains_biquad(fcs, Qs, f_fit, c_fit, weights, lam_base,
     J0   = dR_dg0.T                              # (M, N)
     WJ   = (J0.T * W).T                          # (M, N) weighted
 
-    # Column RMS normalization
     col_rms = np.sqrt(np.mean(WJ ** 2, axis=0))  # (N,)
     col_rms = np.maximum(col_rms, 1e-8)           # avoid div-by-zero
     J0_n    = J0   / col_rms                      # normalized Jacobian
@@ -1613,21 +1285,15 @@ def optimize_gains_biquad(fcs, Qs, f_fit, c_fit, weights, lam_base,
             wr      = W_ * huber_g          # effective residual for gradient
             reg_val = float(g @ reg @ g)
 
-            # [v8-2] Pole radius penalty — analytical, replaces finite-diff GD
             pr_pen  = pole_radius_penalty(fcs, g, Qs_arr, lam_gd, fs)
 
-            # [v8-3] Freq-dependent Q penalty — psychoacoustic aware
             q_pen   = lam_q * q_log_penalty(Qs_arr, g, fcs)
 
-            # [v17] Phase slope regularizer — analytical ∂φ/∂g via Im(dH/H dg)
-            # Use sparse grid (~60 pts) for speed: presence region oversampled
             f_ph_idx = np.round(np.linspace(0, M-1, min(60, M))).astype(int)
             f_ph_grid = f_fit[f_ph_idx]
             ph_pen, grad_ph_sparse = phase_slope_penalty(
                 f_ph_grid, fcs, g, Qs_arr, lam_ph, fs)
-            # grad_ph_sparse is already (N,) — computed on same sparse grid
 
-            # [v12/v13] Logistic driver capability constraint — per-frequency caps
             _k_logistic = 3.0
             drv_pen = 0.0
             for fc, gk in zip(fcs, g):
@@ -1637,7 +1303,6 @@ def optimize_gains_biquad(fcs, Qs, f_fit, c_fit, weights, lam_base,
 
             total    = fit_val + reg_val + pr_pen + q_pen + ph_pen + drv_pen
 
-            # Fully analytical gradients
             grad_fit = dR_dg @ wr           # note: factor 2 absorbed into huber_g
             grad_reg = 2.0 * reg @ g
             grad_pr  = pole_radius_gradient(fcs, g, Qs_arr, lam_gd, fs)
@@ -1652,12 +1317,15 @@ def optimize_gains_biquad(fcs, Qs, f_fit, c_fit, weights, lam_base,
             return total, grad_fit + grad_reg + grad_pr + grad_q + grad_ph_sparse + grad_drv
         return obj_and_grad
 
-    # Dynamic per-band Q cap: ensures pole radius r < 0.993 for every band.
-    # Risk is highest at LOW frequencies — Q=20 at 1kHz → r=0.997 (ringing).
-    # Q=20 at 12kHz → r=0.975 (safe). The constraint is frequency-dependent.
-    def safe_q_cap(fc, fs_=fs, max_r=0.993):
-        """Max Q where biquad pole radius < max_r (binary search)."""
-        lo_, hi_ = 0.1, 200.0
+    def safe_q_cap(fc, fs_=fs):
+        if   fc <   200: max_r = 0.9999   # sub-bass/bass: nearly unconstrained, penalty handles it
+        elif fc <   500: max_r = 0.9995   # upper bass
+        elif fc <  1000: max_r = 0.9990   # low-mid
+        elif fc <  2000: max_r = 0.9970   # mid
+        elif fc <  4000: max_r = 0.9960   # presence: strict
+        elif fc <  8000: max_r = 0.9950   # treble
+        else:            max_r = 0.9940   # air: strictest
+        lo_, hi_ = 0.1, 300.0
         for _ in range(40):
             mid = (lo_ + hi_) / 2
             w0_    = 2 * np.pi * fc / fs_
@@ -1671,7 +1339,6 @@ def optimize_gains_biquad(fcs, Qs, f_fit, c_fit, weights, lam_base,
     q_caps  = np.array([safe_q_cap(fc) for fc in fcs])
     Qs_arr  = np.clip(Qs_arr, 0.1, q_caps)
 
-    # Pass 1
     r1 = optimize.minimize(
         make_obj_grad(W), g0, jac=True,
         bounds=[(-12, 12)] * N, method="L-BFGS-B",
@@ -1683,7 +1350,6 @@ def optimize_gains_biquad(fcs, Qs, f_fit, c_fit, weights, lam_base,
     res1_signed = summed1 - c_fit_opt
     W2 = multiresolution_irls_weights(res1_signed, f_fit, W)
 
-    # Pass 2
     r2 = optimize.minimize(
         make_obj_grad(W2), g1, jac=True,
         bounds=[(-12, 12)] * N, method="L-BFGS-B",
@@ -1692,11 +1358,9 @@ def optimize_gains_biquad(fcs, Qs, f_fit, c_fit, weights, lam_base,
     return r2.x, (r1.success or r2.success)
 
 
-# Joint fc+Q+gain optimizer — fine-tunes band centers after IRLS.
-
 def optimize_joint(gains0, fcs_nom, Qs_nom, f_fit, c_fit, weights,
                    lam_base, M_smooth, max_iter, fs=48000.0,
-                   fc_range=0.15, q_lo=0.5, q_hi=2.0, n_grid=500,
+                   fc_range=0.15, q_lo=0.7, q_hi=12.0, n_grid=500,
                    lam_energy=0.05):
     if max_iter == 0:
         return gains0.copy(), fcs_nom.copy(), Qs_nom.copy(), True
@@ -1704,13 +1368,6 @@ def optimize_joint(gains0, fcs_nom, Qs_nom, f_fit, c_fit, weights,
     N = len(fcs_nom)
     n_j = min(n_grid, len(f_fit))
 
-    # [v17] Residual-aware importance sampling — replaces pure perceptual (v12).
-    # v12: sampling ∝ perceptual_weights only.
-    # v17: sampling ∝ perceptual × |residual|^0.7
-    # Rationale: fc fine-tuning matters most WHERE the error is largest AND
-    # where hearing is most sensitive. Pure perceptual misses error hotspots;
-    # pure residual chases measurement noise. Power 0.7 is a soft blend —
-    # residual contributes but doesn't dominate at isolated spikes.
     _, summed0_pre, _, _, _ = biquad_response_and_grad(f_fit, fcs_nom, gains0, Qs_nom, fs)
     res0_pre = np.abs(summed0_pre - c_fit)
     w_perc   = perceptual_weights(f_fit)
@@ -1726,7 +1383,6 @@ def optimize_joint(gains0, fcs_nom, Qs_nom, f_fit, c_fit, weights,
     E_diag   = make_energy_matrix(fcs_nom, Qs_nom, lam_energy)
     reg      = lam_diag + M_smooth + E_diag
 
-    # Adaptive fc bounds from current biquad residual
     _, summed0, _, _, _ = biquad_response_and_grad(f_fit, fcs_nom, gains0, Qs_nom, fs)
     res0      = np.abs(summed0 - c_fit)
     fc_ranges = compute_adaptive_fc_bounds(fcs_nom, f_fit, res0, fc_range)
@@ -1763,7 +1419,6 @@ def optimize_joint(gains0, fcs_nom, Qs_nom, f_fit, c_fit, weights,
     return g_out, fcs_out, Qs_out, result.success
 
 
-
 def _local_maxima(arr, min_val=0.0):
     is_max = (arr[1:-1] > arr[:-2]) & (arr[1:-1] > arr[2:]) & (arr[1:-1] > min_val)
     return np.where(is_max)[0] + 1
@@ -1771,9 +1426,6 @@ def _local_maxima(arr, min_val=0.0):
 
 def adaptive_band_realloc(f_fit, c_fit, fcs, Qs, gains,
                           waste_thresh=0.5, residual_min=0.5, fs=48000.0):
-    """
-    [v6] Uses exact biquad residual for hotspot detection.
-    """
     _, summed, _, _, _ = biquad_response_and_grad(f_fit, fcs, gains, Qs, fs)
     residual = np.abs(summed - c_fit)
 
@@ -1811,24 +1463,6 @@ def iterative_band_spawn(f_fit, c_fit, weights, lam_base, lam_smooth,
                           iters, max_iters_spawn,
                           n_start=32, n_max=64, n_step=8,
                           rmse_plateau=0.005, fs=48000.0):
-    """
-    [v15] Iterative band spawning: solve from n_start bands, grow to n_max.
-
-    Instead of dumping all 64 bands at once and hoping for good initialization,
-    start lean (32 bands → good convergence), then identify residual hotspots
-    and spawn new bands there, re-solving each time.
-
-    Benefits:
-    - Early iterations converge fast (smaller problem)
-    - New bands spawn exactly where residual is worst → no wasted bands
-    - Final solution uses same 64 bands but they are better distributed
-    - Avoids local minima from overcrowded initial band placement
-
-    Termination: stop spawning when RMSE improvement < rmse_plateau per step,
-    or when n_max bands reached.
-
-    Returns: fcs, Qs, gains, M_smooth (all on final band count)
-    """
     use_warp = True
     fcs, Qs = make_bands(f_start, f_end, n_bands=n_start, warp=use_warp)
     M_smooth = make_smooth_matrix_freq(fcs, lam_smooth)
@@ -1848,7 +1482,6 @@ def iterative_band_spawn(f_fit, c_fit, weights, lam_base, lam_smooth,
         spawn_iter += 1
         n_spawn = min(n_step, n_max - n_cur)
 
-        # Find residual hotspots not covered by existing bands
         _, summed, _, _, _ = biquad_response_and_grad(f_fit, fcs, gains, Qs, fs)
         residual  = np.abs(summed - c_fit)
         peaks     = _local_maxima(residual, min_val=0.3)
@@ -1857,7 +1490,6 @@ def iterative_band_spawn(f_fit, c_fit, weights, lam_base, lam_smooth,
         else:
             peaks = peaks[np.argsort(-residual[peaks])]
 
-        # Add new bands at hotspots not already covered
         new_fcs = list(fcs); new_Qs = list(Qs); added = 0
         for pk in peaks:
             if added >= n_spawn: break
@@ -1876,7 +1508,6 @@ def iterative_band_spawn(f_fit, c_fit, weights, lam_base, lam_smooth,
         fcs_new = fcs_new[sort_idx]; Qs_new = Qs_new[sort_idx]
         n_cur   = len(fcs_new)
 
-        # Warm-start gains: carry existing gains, init new bands at 0
         gains_new = np.zeros(n_cur)
         for k, fc_new in enumerate(fcs_new):
             best = np.argmin(np.abs(fcs - fc_new))
@@ -1905,13 +1536,38 @@ def iterative_band_spawn(f_fit, c_fit, weights, lam_base, lam_smooth,
     return fcs, Qs, gains, M_smooth
 
 def compute_stats_biquad(fcs, Qs, gains, c_fit, f_fit, fs=48000.0):
-    """Stats using exact biquad summed response."""
     _, summed, _, _, _ = biquad_response_and_grad(f_fit, fcs, gains, Qs, fs)
     residual  = summed - c_fit
     rmse      = float(np.sqrt(np.mean(residual ** 2)))
     max_err   = float(np.max(np.abs(residual)))
     max_err_f = float(f_fit[np.argmax(np.abs(residual))])
     return rmse, max_err, max_err_f, summed
+
+
+def lr_uncertainty_weights(l_pts, r_pts_interp, f_fit, sigma_floor=0.3):
+    lr_diff  = np.abs(l_pts - r_pts_interp)
+    sigma    = np.maximum(lr_diff, sigma_floor)
+    w        = 1.0 / (sigma ** 2)
+    w        = w / (w.mean() + 1e-12)
+    w        = np.clip(w, 0.1, 10.0)
+    return w / w.mean()
+
+
+def erb_hz(f):
+    return 24.7 * (4.37 * np.asarray(f, dtype=float) / 1000.0 + 1.0)
+
+
+def erb_band_error(f_fit, residual, n_bands=30):
+    log_f   = np.log2(np.maximum(f_fit, 1.0))
+    edges   = np.linspace(log_f[0], log_f[-1], n_bands + 1)
+    errs    = []
+    for i in range(n_bands):
+        mask = (log_f >= edges[i]) & (log_f < edges[i+1])
+        if mask.sum() == 0:
+            continue
+        errs.append(float(np.sqrt(np.mean(residual[mask] ** 2))))
+    return float(np.mean(errs)), float(np.max(errs)) if errs else 0.0
+
 
 
 def accuracy_table(f_fit, pred, c_fit):
@@ -1929,8 +1585,6 @@ def accuracy_table(f_fit, pred, c_fit):
         lines.append(f"{f:7.0f}   {c:+7.2f}   {p:+7.2f}   {e:+7.2f}   {flag}")
     return "\n".join(lines)
 
-
-# ─── Boost/cut helpers ────────────────────────────────────────────────────────
 
 def wide_filter_params(f_lo, f_hi):
     fc = np.sqrt(f_lo * f_hi); bw_oct = np.log2(f_hi / f_lo)
@@ -1950,10 +1604,10 @@ def apply_boost_cuts(boost_cut_list, fcs, Qs, gains):
     return np.array(fcs), np.array(Qs), np.array(gains), comments
 
 
-# ─── Output formatting ────────────────────────────────────────────────────────
-
-def format_peq(fcs, Qs, gains, preamp, n_opt, extra_comments):
-    """Format PEQ for Poweramp Equalizer (64-band parametric)."""
+def format_peq(fcs, Qs, gains, preamp, n_opt, extra_comments,
+               f_start=20.0, f_end=20000.0, gain_floor=0.1):
+    POWERAMP_Q_MAX = 12.0
+    GAIN_MIN       = gain_floor
     lines = [
         "# ── Poweramp Parametric EQ ──────────────────────────────",
         "# 1. Set Preamp value in Poweramp equalizer",
@@ -1965,9 +1619,12 @@ def format_peq(fcs, Qs, gains, preamp, n_opt, extra_comments):
         ""
     ]
     for i, (fc, Q, g) in enumerate(zip(fcs, Qs, gains), 1):
-        tag = "  # boost/cut" if i > n_opt else ""
-        lines.append(f"Filter {i:2d}: ON PK Fc {fc:9.2f} Hz  "
-                     f"Gain {g:+.2f} dB  Q {Q:.2f}{tag}")
+        fc_out = int(round(fc))
+        Q_out  = min(Q, POWERAMP_Q_MAX)
+        g_out  = 0.0 if abs(g) < GAIN_MIN else g
+        tag    = "  # boost/cut" if i > n_opt else ""
+        lines.append(f"Filter {i:2d}: ON PK Fc {fc_out:6d} Hz  "
+                     f"Gain {g_out:+.2f} dB  Q {Q_out:.2f}{tag}")
     if extra_comments:
         lines += ["", "# Boost/cut filter details:"] + extra_comments
     return "\n".join(lines)
@@ -1980,8 +1637,6 @@ def format_geq(fcs, corr_fn):
     return f"Preamp: {-(max_b+0.5):+.1f} dB\nGraphicEQ: {parts}"
 
 
-# ─── True peak ────────────────────────────────────────────────────────────────
-
 def compute_true_peak(fcs, Qs, gains, fs=48000.0, n_points=32000):
     f_grid = np.logspace(np.log10(20.0), np.log10(min(fs / 2.0, 20000.0)), n_points)
     summed = np.zeros(n_points)
@@ -1989,8 +1644,6 @@ def compute_true_peak(fcs, Qs, gains, fs=48000.0, n_points=32000):
         summed += biquad_peak_db(f_grid, fc, g, Q, fs=fs)
     return float(np.max(summed))
 
-
-# ─── Post-EQ simulation ───────────────────────────────────────────────────────
 
 def simulate_post_eq(l_pts, r_pts, fcs, Qs, gains, preamp, out_path, fs=48000.0):
     r_fn    = make_interp(r_pts)
@@ -2008,22 +1661,10 @@ def simulate_post_eq(l_pts, r_pts, fcs, Qs, gains, preamp, out_path, fs=48000.0)
     print(f"Post-EQ simulation -> {out_path}")
 
 
-
 def compute_ir_diagnostic(fcs, Qs, gains, fs=48000.0, n_ir=4096):
-    """
-    [v10] Simulate impulse response of biquad cascade and compute
-    time-domain quality metrics.
-
-    Returns dict with:
-      temporal_centroid_ms  : energy-weighted mean time (ms)
-      early_energy_ratio    : energy in [0, 2ms] / total energy
-      decay_time_20db_ms    : time for cumulative energy to reach -20 dB (ms)
-      ir_peak_db            : peak amplitude of IR in dB (0 = perfect flat)
-    """
     from scipy.signal import lfilter
     x = np.zeros(n_ir); x[0] = 1.0
 
-    # Apply each biquad using scipy.signal.lfilter (vectorized, ~100x faster than Python loop)
     y = x.copy()
     for fc, Q, g in zip(fcs, Qs, gains):
         A     = 10 ** (g / 40.0)
@@ -2041,15 +1682,12 @@ def compute_ir_diagnostic(fcs, Qs, gains, fs=48000.0, n_ir=4096):
     total_energy = energy.sum() + 1e-30
     t_ms = np.arange(n_ir) / fs * 1000.0  # time axis in ms
 
-    # Temporal centroid
     temporal_centroid_ms = float(np.sum(t_ms * energy) / total_energy)
 
-    # Early energy ratio (0 to 2 ms)
     early_samples = int(0.002 * fs)
     early_energy  = energy[:early_samples].sum()
     early_energy_ratio = float(early_energy / total_energy)
 
-    # [v13] IR spectral flatness (Wiener entropy) — global.
     N_sf    = 2048
     ir_fft  = np.fft.rfft(y, n=N_sf)
     freqs_sf = np.fft.rfftfreq(N_sf, d=1.0/fs)
@@ -2060,10 +1698,6 @@ def compute_ir_diagnostic(fcs, Qs, gains, fs=48000.0, n_ir=4096):
     spectral_flatness = float(np.exp(log_mean) / (arith_mean + 1e-30))
     spectral_flatness_db = float(10 * np.log10(max(spectral_flatness, 1e-12)))
 
-    # [v14] Time-localized spectral flatness — sliding 4ms window, 50% overlap.
-    # Global flatness can miss a single narrow ringing band (e.g. 8 kHz coupler
-    # resonance that rings for 3–5 ms). Minimum frame flatness = worst-case
-    # tonal region → better predictor of perceived metallic fatigue.
     win_samples = int(0.004 * fs)
     hop_samples = win_samples // 2
     n_frames    = max(1, (len(y) - win_samples) // hop_samples)
@@ -2082,23 +1716,13 @@ def compute_ir_diagnostic(fcs, Qs, gains, fs=48000.0, n_ir=4096):
     min_flatness_db = float(10 * np.log10(
         max(min(frame_flat) if frame_flat else spectral_flatness, 1e-12)))
 
-    # [v11] Schroeder backward integration for decay time.
-    # Previous v10 used forward cumulative energy — biased for ringing solutions
-    # because energy accumulates monotonically: a ringing IR can hit the -20 dB
-    # threshold "late" in forward direction while actually decaying slowly.
-    #
-    # Schroeder: E_sch[n] = Σ_{k=n}^{N-1} y[k]²  (energy remaining from n)
-    # Normalized to 0 dB at n=0. Decay time = first n where E_sch[n] < -20 dB.
-    # This is the standard RT-style metric used in room acoustics and DSP.
     schroeder = np.cumsum(energy[::-1])[::-1]  # backward cumulative sum
     schroeder_db = 10 * np.log10(np.maximum(schroeder / (schroeder[0] + 1e-30), 1e-12))
     decay_idx = np.searchsorted(-schroeder_db, 20.0)  # first point ≤ -20 dB
     decay_time_20db_ms = float(t_ms[min(decay_idx, n_ir - 1)])
 
-    # IR peak (deviation from flat — flat EQ = 0 dB peak)
     ir_peak_db = float(20 * np.log10(max(np.max(np.abs(y)), 1e-10)))
 
-    # [v12] Peak-to-energy ratio
     peak_energy_ratio = float(np.max(energy) / (total_energy + 1e-30))
     peak_energy_ratio_db = float(10 * np.log10(max(peak_energy_ratio, 1e-12)))
 
@@ -2114,38 +1738,32 @@ def compute_ir_diagnostic(fcs, Qs, gains, fs=48000.0, n_ir=4096):
 
 
 def print_ir_diagnostic(fcs, Qs, gains, fs=48000.0):
-    """Print IR diagnostic table to console."""
     d = compute_ir_diagnostic(fcs, Qs, gains, fs=fs)
     eer_pct = d["early_energy_ratio"] * 100.0
 
-    # Interpret early energy ratio
     if   eer_pct > 85: eer_label = "excellent (laser tight)"
     elif eer_pct > 70: eer_label = "good (clean transient)"
     elif eer_pct > 55: eer_label = "moderate (slight smear)"
     else:              eer_label = "poor (diffuse / ringy)"
 
-    # Interpret decay time
     dt = d["decay_time_20db_ms"]
     if   dt <  5: dt_label = "very fast"
     elif dt < 15: dt_label = "fast"
     elif dt < 30: dt_label = "moderate"
     else:         dt_label = "slow (fatigue risk)"
 
-    # Interpret peak-to-energy ratio
     per_db = d["peak_energy_ratio_db"]
     if   per_db > -13: per_label = "excellent (laser attack)"
     elif per_db > -20: per_label = "good (sharp transient)"
     elif per_db > -28: per_label = "moderate (some smear)"
     else:              per_label = "diffuse (blurred attack)"
 
-    # Interpret spectral flatness
     sf_db = d["spectral_flatness_db"]
     if   sf_db > -6:  sf_label = "broadband (resolving, low fatigue)"
     elif sf_db > -12: sf_label = "moderate (balanced)"
     elif sf_db > -20: sf_label = "tonal (some resonance)"
     else:             sf_label = "narrow (metallic / fatiguing risk)"
 
-    # Interpret min (time-localized) flatness
     mf_db = d["min_flatness_db"]
     if   mf_db > -8:  mf_label = "clean (no localized ringing)"
     elif mf_db > -15: mf_label = "mild tonal frame"
@@ -2162,8 +1780,6 @@ def print_ir_diagnostic(fcs, Qs, gains, fs=48000.0):
     print(f"  IR peak              : {d['ir_peak_db']:.2f} dBFS")
 
 
-# ─── Argument parsing ─────────────────────────────────────────────────────────
-
 class BoostCutAction(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
         try:
@@ -2177,14 +1793,7 @@ class BoostCutAction(argparse.Action):
         setattr(namespace, self.dest, lst)
 
 
-
 def smart_norm_freq(l_pts, r_fn, lo=500.0, hi=800.0):
-    """
-    Auto-select normalization anchor in [lo, hi] Hz.
-    Finds the flattest region by minimizing local variance of (L+R)/2
-    over a ±0.1 oct window, then returns that frequency.
-    Falls back to geometric mean of [lo, hi] if no data found.
-    """
     avg = (l_pts[:, 1] + r_fn(l_pts[:, 0])) / 2
     mask = (l_pts[:, 0] >= lo) & (l_pts[:, 0] <= hi)
     if mask.sum() < 3:
@@ -2215,19 +1824,6 @@ def smart_norm_freq(l_pts, r_fn, lo=500.0, hi=800.0):
 
 def auto_freq_end(l_pts, r_fn, floor_db=-25.0, ref_lo=500.0, ref_hi=2000.0,
                   hard_max=20000.0):
-    """
-    [v3] Auto-detect usable upper frequency limit from measurement rolloff.
-
-    Two-stage detection — takes the more conservative (lower) result:
-    1. Absolute floor: where (L+R)/2 drops more than floor_db below
-       the mid-band reference level (500-2kHz median).
-    2. HF peak drop: find local HF peak between 5-12 kHz, then find where
-       signal drops more than hf_drop_db below that local peak.
-       This correctly handles IEMs with steep-but-usable treble rolloff
-       (e.g. Libra X which rolls off steeply but is usable to ~16 kHz).
-
-    Clamped to [8000, hard_max].
-    """
     avg   = (l_pts[:, 1] + r_fn(l_pts[:, 0])) / 2
     freqs = l_pts[:, 0]
 
@@ -2236,7 +1832,6 @@ def auto_freq_end(l_pts, r_fn, floor_db=-25.0, ref_lo=500.0, ref_hi=2000.0,
         return hard_max
     ref_level = float(np.median(avg[ref_mask]))
 
-    # --- Stage 1: Absolute floor from mid-band reference ---
     hf_mask = freqs >= 5000.0
     if hf_mask.sum() == 0:
         return hard_max
@@ -2250,9 +1845,6 @@ def auto_freq_end(l_pts, r_fn, floor_db=-25.0, ref_lo=500.0, ref_hi=2000.0,
             detected_floor = float(f)
             break
 
-    # --- Stage 2: HF local peak drop detection ---
-    # Find peak in 5-12 kHz region, then find where signal has dropped
-    # more than hf_drop_db from that local peak (scanning from high to low)
     hf_drop_db = -15.0  # dB drop from local HF peak → consider rolled off
     peak_mask  = (freqs >= 5000.0) & (freqs <= 12000.0)
     if peak_mask.sum() > 0:
@@ -2269,25 +1861,11 @@ def auto_freq_end(l_pts, r_fn, floor_db=-25.0, ref_lo=500.0, ref_hi=2000.0,
     else:
         detected_hfpeak = hard_max
 
-    # Take the more conservative (lower freq) of all estimates
     detected = min(detected_floor, detected_hfpeak)
     return float(np.clip(detected, 8000.0, hard_max))
 
 
-# ─── Main ─────────────────────────────────────────────────────────────────────
-
-
 def auto_detect_files(target_path=None):
-    """
-    Auto-detect L/R measurement files in the current directory.
-
-    Heuristics (in priority order):
-    1. Files containing '_L' / '_R' or ' L ' / ' R ' in name
-    2. Files containing 'left'/'right' (case-insensitive)
-    3. If exactly 2 .txt files exist (excluding target), use them sorted
-
-    Returns (left_path, right_path) or raises FileNotFoundError.
-    """
     import glob, re
 
     candidates = [f for f in glob.glob("*.txt")
@@ -2300,11 +1878,9 @@ def auto_detect_files(target_path=None):
             "  python autoeq17-1.py LEFT.txt RIGHT.txt"
         )
 
-    # Try pattern matching
     l_files, r_files = [], []
     for f in candidates:
         name = f.lower()
-        # Strong L/R markers
         if re.search(r'[_\s\(\[]l[_\s\)\]\.]|\bl\b|left|_l\.', name):
             l_files.append(f)
         if re.search(r'[_\s\(\[]r[_\s\)\]\.]|\br\b|right|_r\.', name):
@@ -2313,7 +1889,6 @@ def auto_detect_files(target_path=None):
     if l_files and r_files:
         return l_files[0], r_files[0]
 
-    # Fallback: if exactly 2 candidates, assume sorted order = L, R
     if len(candidates) == 2:
         candidates.sort()
         return candidates[0], candidates[1]
@@ -2327,11 +1902,6 @@ def auto_detect_files(target_path=None):
 
 
 def load_config(path="autoeq_config.txt"):
-    """
-    Load run config from a simple key=value file.
-    Keys: left, right, target, norm_freq, norm_mode, freq_end, output
-    Returns dict of overrides (only keys present in file).
-    """
     cfg = {}
     if not os.path.exists(path):
         return cfg
@@ -2394,11 +1964,21 @@ def main():
                         help="HF driver capability constraint (default: 0.5)")
     parser.add_argument("--no-minphase", action="store_true",
                         help="Skip minimum phase reconstruction")
-    parser.add_argument("--lam-ph",      type=float, default=0.0005,
-                        help="Phase slope regularizer weight (default: 0.0005; 0 to disable)")
+    parser.add_argument("--lam-ph",      type=float, default=0.0,
+                        help="Phase slope regularizer weight (default: 0 = disabled for speed). "
+                             "Enable with e.g. 0.0005 for phase-aware tuning.")
     parser.add_argument("--fs",           type=float, default=48000.0,
                         help="Target device sample rate Hz (default: 48000). "
                              "Use 96000 for high-res DAC/DAP.")
+    parser.add_argument("--gain-floor",     type=float, default=0.10,
+                        help="Minimum absolute gain to write to output (default: 0.10 dB). "
+                             "Bands below this threshold are written as 0.00.")
+    parser.add_argument("--presence-boost", type=float, default=2.2,
+                        help="Band density multiplier in 2–8 kHz presence region (default: 2.2). "
+                             "Higher = more bands allocated to presence/vocal zone.")
+    parser.add_argument("--treble-boost",   type=float, default=1.8,
+                        help="Band density multiplier in 8–20 kHz treble region (default: 1.8). "
+                             "Higher = more bands allocated to treble/air zone.")
     parser.add_argument("--no-warp",     action="store_true")
     parser.add_argument("--geq",          action="store_true",
                         help="Also output GraphicEQ section (disabled by default, Poweramp uses PEQ only)")
@@ -2411,7 +1991,6 @@ def main():
                         action=BoostCutAction, dest="boost_cuts")
     args = parser.parse_args()
 
-    # ── Config file override ─────────────────────────────────────
     cfg = load_config()
     if cfg:
         print(f"Config     : loaded autoeq_config.txt")
@@ -2428,7 +2007,6 @@ def main():
             try: args.freq_end = float(cfg["freq_end"])
             except ValueError: pass
 
-    # ── Auto-detect L/R if not specified ─────────────────────────
     if args.left is None or args.right is None:
         try:
             detected_l, detected_r = auto_detect_files(args.target)
@@ -2438,12 +2016,10 @@ def main():
         except FileNotFoundError as e:
             print(f"ERROR: {e}"); sys.exit(1)
 
-    # ── Auto output filename from measurement + target names ──────
     if args.output == "autoeq_result.txt":
         import re as _re
         def _clean(s):
             s = Path(s).stem
-            # Remove channel tags [L], [R], _L, _R
             s = _re.sub(r'\s*[\[\(]?[LR][\]\)]?\s*$', '', s, flags=_re.IGNORECASE).strip()
             s = _re.sub(r'[_\-]\s*[LR]\s*$', '', s, flags=_re.IGNORECASE).strip()
             return s.upper()
@@ -2452,12 +2028,10 @@ def main():
             tgt_name = Path(args.target).stem.upper()
         else:
             tgt_name = "EUVONY REF"
-        # Sanitize for filename
         safe = _re.sub(r'[^\w\s\-]', '', f"{iem_name} - {tgt_name}").strip()
         args.output = safe + ".txt"
         print(f"Output     : {args.output} (auto-named)")
 
-    # ── Load ─────────────────────────────────────────────────────
     print(f"Loading L : {args.left}")
     l_pts = parse_txt(args.left)
     print(f"  -> {len(l_pts)} pts | {l_pts[0,0]:.1f}-{l_pts[-1,0]:.1f} Hz")
@@ -2467,14 +2041,12 @@ def main():
 
     r_fn_early = make_interp(r_pts)
 
-    # ── Smart auto-normalization ──────────────────────────────────
     if args.norm_freq is None:
         args.norm_freq = smart_norm_freq(l_pts, r_fn_early, lo=500.0, hi=800.0)
         print(f"Norm freq  : auto-selected {args.norm_freq:.1f} Hz (flattest region 500-800 Hz)")
     else:
         print(f"Norm freq  : {args.norm_freq:.1f} Hz (manual)")
 
-    # ── Auto freq-end ─────────────────────────────────────────────
     if args.freq_end is None:
         args.freq_end = auto_freq_end(l_pts, r_fn_early)
         print(f"Freq end   : auto-detected {args.freq_end:.0f} Hz from rolloff")
@@ -2495,28 +2067,22 @@ def main():
         tgt_label = os.path.basename(args.target)
     print(f"  -> {len(tgt_pts)} pts | {tgt_pts[0,0]:.1f}-{tgt_pts[-1,0]:.1f} Hz")
 
-    # ── Normalization ─────────────────────────────────────────────
     r_fn    = r_fn_early; tgt_fn = make_interp(tgt_pts)
     avg_db  = (l_pts[:, 1] + r_fn(l_pts[:, 0])) / 2
     raw_corr = tgt_fn(l_pts[:, 0]) - avg_db
 
     if args.norm_mode == "perceptual":
-        # Perceptual mode: re-center by perceptual-weighted mean of correction.
-        # Does NOT use norm_freq anchor — the anchor concept is irrelevant here.
-        # This ensures the perceptual loudness of the correction is neutral.
         w_perc_norm = perceptual_weights(l_pts[:, 0])
         w_perc_norm = w_perc_norm / w_perc_norm.sum()
         norm_offset = float(np.sum(raw_corr * w_perc_norm))
         corr        = raw_corr - norm_offset
         print(f"Perceptual norm    : weighted mean offset = {norm_offset:+.3f} dB → centered to 0")
     else:
-        # freq / energy mode: use anchor at norm_freq (Gaussian-windowed)
         norm_offset = compute_norm_offset(l_pts, r_fn, tgt_fn,
                                           args.norm_freq, args.norm_lo, args.norm_hi)
         corr = raw_corr - norm_offset
 
         if args.norm_mode == "energy":
-            # Energy mode: further adjust preamp post-solve (handled at output)
             print(f"Energy norm        : anchor @ {args.norm_freq:.0f} Hz | delta={norm_offset:+.3f} dB")
         else:
             print(f"Freq norm          : anchor @ {args.norm_freq:.0f} Hz | delta={norm_offset:+.3f} dB")
@@ -2524,9 +2090,6 @@ def main():
     corr_fn = make_interp(np.column_stack([l_pts[:, 0], corr]))
     print(f"Correction range   : {corr.min():.2f} to {corr.max():.2f} dB")
 
-    # ── Fit range ────────────────────────────────────────────────
-    # Analysis uses full measurement range for normalization accuracy.
-    # EQ optimization is clamped to 20 Hz minimum (Poweramp lower limit).
     POWERAMP_FC_MIN = 20.0
     f_start = max(args.freq_start, POWERAMP_FC_MIN, float(l_pts[0, 0]))
     f_end   = min(args.freq_end,   float(l_pts[-1, 0]))
@@ -2535,7 +2098,15 @@ def main():
     raw_avg_fit = avg_db[mask]
     print(f"Fit range  : {f_start:.1f}-{f_end:.1f} Hz ({mask.sum()} pts)")
 
-    # ── Bands ────────────────────────────────────────────────────
+    r_pts_interp_fit = r_fn(f_fit)
+    l_pts_fit        = l_pts[mask, 1]
+    w_uncertainty    = lr_uncertainty_weights(l_pts_fit, r_pts_interp_fit, f_fit)
+    weights_perc     = perceptual_weights(f_fit)
+    weights          = weights_perc * w_uncertainty
+    weights          = weights / (weights.mean() + 1e-12)
+    n_stable = int(np.sum(w_uncertainty >= 0.5))
+    print(f"L/R uncertainty weighting: {n_stable}/{len(f_fit)} pts stable (L-R < 0.6 dB)")
+
     n_bc    = len(args.boost_cuts) if args.boost_cuts else 0
     if args.bands > 64:
         print(f"WARNING: --bands {args.bands} exceeds Poweramp 64-band limit, clamping to 64")
@@ -2543,10 +2114,8 @@ def main():
     n_bands = min(args.bands, 64 - n_bc)
     use_warp   = not args.no_warp
     warp_label = "warped (presence boost 2k-8k)" if use_warp else "plain logspace"
-    weights    = perceptual_weights(f_fit)
 
     if args.spawn:
-        # [v15] Iterative band spawning: grow from 32 → n_bands
         n_start_spawn = max(16, n_bands // 2)
         print(f"\nBands      : spawn mode {n_start_spawn}→{n_bands} + {n_bc} boost/cut")
         print(f"v15 params : lam={args.lam} lam_s={args.lam_smooth} "
@@ -2566,7 +2135,9 @@ def main():
         print(f"Spawn final: {N} bands | RMSE={rmse_irls:.4f} dB"
               f" | Max={max_err_irls:.4f} dB @ {max_err_f_irls:.0f} Hz")
     else:
-        fcs, Qs = make_bands(f_start, f_end, n_bands=n_bands, warp=use_warp)
+        fcs, Qs = make_bands(f_start, f_end, n_bands=n_bands, warp=use_warp,
+                             presence_boost=args.presence_boost,
+                             treble_boost=args.treble_boost)
         N = len(fcs)
         print(f"\nBands      : {N} optimizer + {n_bc} boost/cut = {N+n_bc} total")
         print(f"Dist       : {warp_label} | Q: {Qs.min():.2f}-{Qs.max():.2f} (adaptive)")
@@ -2581,10 +2152,28 @@ def main():
             lam_q=args.lam_q, lam_gd=args.lam_gd, lam_driver=args.lam_driver, lam_ph=args.lam_ph,
             use_minphase=not args.no_minphase, raw_avg_db=raw_avg_fit, fs=args.fs
         )
-        print(f"Converged  : {converged}")
         rmse_irls, max_err_irls, max_err_f_irls, pred_irls = compute_stats_biquad(
             fcs, Qs, gains, c_fit, f_fit)
+        print(f"Converged  : {converged}")
         print(f"RMSE (biquad): {rmse_irls:.4f} dB | Max: {max_err_irls:.4f} dB @ {max_err_f_irls:.0f} Hz")
+
+        if use_warp:
+            fcs2, Qs2 = make_bands(f_start, f_end, n_bands=n_bands, warp=False)
+            M2 = make_smooth_matrix_freq(fcs2, args.lam_smooth)
+            gains2, _ = optimize_gains_biquad(
+                fcs2, Qs2, f_fit, c_fit, weights,
+                args.lam, M2, args.iters // 2, lam_energy=args.lam_energy,
+                lam_q=args.lam_q, lam_gd=args.lam_gd, lam_driver=args.lam_driver, lam_ph=args.lam_ph,
+                use_minphase=not args.no_minphase, raw_avg_db=raw_avg_fit, fs=args.fs
+            )
+            rmse2 = compute_stats_biquad(fcs2, Qs2, gains2, c_fit, f_fit)[0]
+            if rmse2 < rmse_irls:
+                fcs, Qs, gains, M_smooth = fcs2, Qs2, gains2, M2
+                rmse_irls, max_err_irls, max_err_f_irls, pred_irls = compute_stats_biquad(
+                    fcs, Qs, gains, c_fit, f_fit)
+                print(f"Multi-start: flat seed better ({rmse2:.4f} < {rmse_irls:.4f}), using flat")
+            else:
+                print(f"Multi-start: warped seed kept ({rmse_irls:.4f} <= {rmse2:.4f})")
 
     if not args.no_realloc:
         print("Iterative band reallocation [v16: greedy loop until plateau]...")
@@ -2634,9 +2223,6 @@ def main():
             pred = pred_j; rmse = rmse_j; max_err = max_err_j; max_err_f = max_err_f_j
             print(f"  Joint accepted  ({rmse_pre:.4f} -> {rmse_j:.4f} dB ✓)")
 
-            # ── [v9] Post-joint reallocation check ───────────────────
-            # Joint optimizer shifts fc/Q, which can open new residual hotspots
-            # not present before. Run a second realloc pass with stricter threshold.
             if not args.no_realloc:
                 print("Post-joint band reallocation [v9: tighter threshold 0.3]...")
                 fcs_pj, Qs_pj, n_moved_pj = adaptive_band_realloc(
@@ -2670,24 +2256,85 @@ def main():
     else:
         pred = pred_irls; rmse = rmse_irls; max_err = max_err_irls; max_err_f = max_err_f_irls
 
-    # Smoothness diagnostics
     diffs = np.diff(gains)
     print(f"Smoothness : max adj delta={np.max(np.abs(diffs)):.3f} dB"
           f" | RMS delta={np.sqrt(np.mean(diffs**2)):.3f} dB")
 
-    # ── Clamp fc to Poweramp minimum (20 Hz) ─────────────────────
-    # Joint optimizer fc perturbation can drift bands below 20 Hz.
-    # Bands below 20 Hz are inaudible and waste a filter slot.
-    _fc_min = 20.0
-    n_clamped = int(np.sum(fcs < _fc_min))
-    if n_clamped > 0:
-        fcs = np.maximum(fcs, _fc_min)
-        print(f"FC clamp   : {n_clamped} band(s) below {_fc_min:.0f} Hz clamped to {_fc_min:.0f} Hz")
+    _, final_summed, _, _, _ = biquad_response_and_grad(f_fit, fcs, gains, Qs)
+    final_residual = final_summed - c_fit
+    erb_mean, erb_max = erb_band_error(f_fit, final_residual)
+    print(f"ERB-band   : mean={erb_mean:.4f} dB | worst-band={erb_max:.4f} dB")
 
-    # ── Energy-neutral normalization ──────────────────────────────
-    # Compute perceptually-weighted mean EQ gain over fit range.
-    # In 'energy' mode: preamp is set so that (preamp + mean_gain) ≈ 0,
-    # i.e. EQ doesn't shift net loudness. Also ensures no clipping.
+    _fc_min  = 20.0
+    _fc_step = 1.0
+    _gain_min = 0.1   # minimum audible/useful gain
+
+    sort_idx = np.argsort(fcs)
+    fcs   = fcs[sort_idx].copy()
+    Qs    = Qs[sort_idx].copy()
+    gains = gains[sort_idx].copy()
+
+    n_clamped = int(np.sum(fcs < _fc_min))
+    fcs = np.maximum(fcs, _fc_min)
+    for i in range(1, len(fcs)):
+        if fcs[i] < fcs[i-1] + _fc_step:
+            fcs[i] = fcs[i-1] + _fc_step
+    if n_clamped > 0:
+        print(f"FC clamp   : {n_clamped} band(s) clamped/spread from {_fc_min:.0f} Hz "
+              f"with {_fc_step:.0f} Hz minimum spacing")
+
+    _, summed_pre, _, _, _ = biquad_response_and_grad(f_fit, fcs, gains, Qs)
+    residual_pre = np.abs(summed_pre - c_fit)
+
+    wasted_idx = np.where(np.abs(gains) < _gain_min)[0]
+    n_wasted   = len(wasted_idx)
+
+    if n_wasted > 0:
+        non_wasted_fcs = fcs[np.abs(gains) >= _gain_min]
+        peaks = _local_maxima(residual_pre, min_val=0.2)
+        if len(peaks) == 0:
+            peaks = np.argsort(residual_pre)[-n_wasted:][::-1]
+        else:
+            peaks = peaks[np.argsort(-residual_pre[peaks])]
+
+        moved = 0
+        for wi in wasted_idx:
+            if moved >= len(peaks):
+                break
+            for pk in peaks:
+                f_hot = float(f_fit[pk])
+                if non_wasted_fcs.size > 0 and np.min(np.abs(np.log2(non_wasted_fcs / max(f_hot,1)))) < 0.2:
+                    continue
+                if f_hot < _fc_min:
+                    f_hot = _fc_min
+                fcs[wi]   = f_hot
+                Qs[wi]    = adaptive_q(f_hot)
+                gains[wi] = 0.0   # optimizer will refine in mini-solve
+                non_wasted_fcs = np.append(non_wasted_fcs, f_hot)
+                moved += 1
+                break
+
+        if moved > 0:
+            sort_idx2 = np.argsort(fcs)
+            fcs = fcs[sort_idx2]; Qs = Qs[sort_idx2]; gains = gains[sort_idx2]
+            M_smooth_c = make_smooth_matrix_freq(fcs, args.lam_smooth)
+            gains, _ = optimize_gains_biquad(
+                fcs, Qs, f_fit, c_fit, weights,
+                args.lam, M_smooth_c, min(args.iters // 3, 500),
+                lam_energy=args.lam_energy, lam_q=args.lam_q,
+                lam_gd=args.lam_gd, lam_driver=args.lam_driver,
+                lam_ph=args.lam_ph,
+                use_minphase=not args.no_minphase,
+                raw_avg_db=raw_avg_fit, fs=args.fs)
+            rmse_c, max_err_c, max_err_f_c, pred = compute_stats_biquad(
+                fcs, Qs, gains, c_fit, f_fit)
+            rmse = rmse_c; max_err = max_err_c; max_err_f = max_err_f_c
+            print(f"Band cleanup: {n_wasted} wasted band(s) → {moved} relocated "
+                  f"| RMSE after: {rmse_c:.4f} dB")
+        else:
+            print(f"Band cleanup: {n_wasted} band(s) with |gain| < {_gain_min} dB "
+                  f"(no hotspot found to relocate)")
+
     f_grid  = np.logspace(np.log10(max(f_start, 20)),
                           np.log10(min(f_end, 20000)), 2000)
     eq_resp = np.zeros(len(f_grid))
@@ -2700,12 +2347,9 @@ def main():
 
     n_opt = N
 
-    # ── True peak + preamp ───────────────────────────────────────
     raw_peak = compute_true_peak(fcs, Qs, gains)
 
     if args.norm_mode == "energy":
-        # Energy-neutral: preamp absorbs the mean gain so net loudness ≈ 0.
-        # preamp = -(mean_gain + 0.5), but must also prevent clipping.
         preamp_clip   = -(raw_peak + 0.5)          # clipping guard
         preamp_energy = -(mean_gain + 0.5)          # loudness-neutral
         preamp = round(min(preamp_clip, preamp_energy), 1)
@@ -2716,7 +2360,6 @@ def main():
         preamp = round(-(raw_peak + 0.5), 1)
         print(f"Preamp     : true peak={raw_peak:.3f} dB -> {preamp:+.1f} dB")
 
-    # ── Boost/cut ─────────────────────────────────────────────────
     extra_comments = []
     if args.boost_cuts:
         print("Appending boost/cut filters:")
@@ -2726,7 +2369,6 @@ def main():
         preamp   = round(-(raw_peak + 0.5), 1)
         print(f"  Preamp after boost/cut: {preamp:+.1f} dB")
 
-    # ── Write output ──────────────────────────────────────────────
     joint_note   = f"joint iters={args.joint_iters}" if args.joint_iters > 0 else "joint=off"
     realloc_note = "realloc=on" if not args.no_realloc else "realloc=off"
 
@@ -2753,7 +2395,9 @@ def main():
         "# " + "-" * 52,
     ])
     peq = "\n".join(["# === PARAMETRIC EQ ===", "",
-                     format_peq(fcs, Qs, gains, preamp, n_opt, extra_comments)])
+                     format_peq(fcs, Qs, gains, preamp, n_opt, extra_comments,
+                                f_start=f_start, f_end=f_end,
+                                gain_floor=args.gain_floor)])
     sections = [header, "", acc, "", peq]
     if args.geq:
         sections += ["", "\n".join(["# === GRAPHIC EQ (correction curve only, no boost/cut) ===", "",
@@ -2767,7 +2411,6 @@ def main():
     print("\nAccuracy (vs target):")
     print(accuracy_table(f_fit, pred, c_fit))
 
-    # [v10-3] Time-domain IR diagnostic — always printed, optimizer-bands only
     print_ir_diagnostic(fcs[:n_opt], Qs[:n_opt], gains[:n_opt])
 
     if not getattr(args, "no_simulate", False):

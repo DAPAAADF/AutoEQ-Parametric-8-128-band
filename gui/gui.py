@@ -12,6 +12,8 @@ import threading
 import webbrowser
 import subprocess
 import tempfile
+import uuid
+import numpy as np
 from pathlib import Path
 
 from flask import Flask, render_template, request, jsonify, send_file
@@ -51,16 +53,12 @@ def parse_curve(path):
 def avg_lr(left_pts, right_pts):
     if not left_pts or not right_pts:
         return left_pts or right_pts
-    r_dict = {f: d for f, d in right_pts}
-    out = []
-    for f, dl in left_pts:
-        dr = r_dict.get(f)
-        if dr is None:
-            # nearest
-            nearest = min(r_dict.keys(), key=lambda x: abs(x - f))
-            dr = r_dict[nearest]
-        out.append([f, (dl + dr) / 2])
-    return out
+    l_arr = np.array(left_pts)
+    r_arr = np.array(right_pts)
+    # Use np.interp — O(N log N), not O(N²)
+    r_interp = np.interp(l_arr[:, 0], r_arr[:, 0], r_arr[:, 1])
+    avg = (l_arr[:, 1] + r_interp) / 2
+    return [[float(f), float(d)] for f, d in zip(l_arr[:, 0], avg)]
 
 
 def parse_result(path):
@@ -138,8 +136,10 @@ def run():
     if not lf or not rf:
         return jsonify({"error": "Upload both L and R files"}), 400
 
-    left_path  = SESS / lf.filename
-    right_path = SESS / rf.filename
+    # UUID prefix prevents filename collision / overwrite between runs
+    _uid = uuid.uuid4().hex[:8]
+    left_path  = SESS / f"{_uid}_L_{lf.filename}"
+    right_path = SESS / f"{_uid}_R_{rf.filename}"
     lf.save(left_path)
     rf.save(right_path)
 
@@ -149,6 +149,20 @@ def run():
     norm_mode = request.form.get("norm_mode", "perceptual").strip()
     fs        = request.form.get("fs", "48000").strip()
     bands     = request.form.get("bands", "64").strip()
+
+    # Advanced params
+    use_minphase   = request.form.get("use_minphase",   "1") == "1"
+    use_phase      = request.form.get("use_phase",      "0") == "1"
+    opt_mode       = request.form.get("opt_mode",       "balanced").strip()
+    gain_floor     = request.form.get("gain_floor",     "0.10").strip()
+    presence_boost = request.form.get("presence_boost", "2.2").strip()
+    treble_boost   = request.form.get("treble_boost",   "1.8").strip()
+
+    # Optimization mode → iters presets
+    iters_map = {"fast": "800",  "balanced": "1500", "accurate": "2500"}
+    joint_map = {"fast": "400",  "balanced": "800",  "accurate": "1200"}
+    iters     = iters_map.get(opt_mode, "1500")
+    joint     = joint_map.get(opt_mode, "800")
 
     # custom target file upload takes priority
     custom_target_f = request.files.get("target_file")
@@ -179,8 +193,20 @@ def run():
            "-o", str(result_path),
            "--norm-mode", norm_mode,
            "--fs", fs or "48000",
-           "--bands", bands or "64"]
+           "--bands", bands or "64",
+           "--iters", iters,
+           "--joint-iters", joint]
 
+    if not use_minphase:
+        cmd += ["--no-minphase"]
+    if use_phase:
+        cmd += ["--lam-ph", "0.0005"]
+    if gain_floor:
+        cmd += ["--gain-floor", gain_floor]
+    if presence_boost:
+        cmd += ["--presence-boost", presence_boost]
+    if treble_boost:
+        cmd += ["--treble-boost", treble_boost]
     if target:
         cmd += ["--target", target]
     if freq_end:

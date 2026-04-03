@@ -188,6 +188,32 @@
   select { cursor: pointer; }
   select:focus, input:focus { border-color: var(--green); }
   select option { background: #0e1417; }
+  input:disabled, select:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+    border-color: var(--border);
+  }
+
+  /* ── toggle switch ── */
+  .toggle-switch { position: relative; display: inline-block; width: 36px; height: 20px; cursor: pointer; }
+  .toggle-switch input { opacity: 0; width: 0; height: 0; }
+  .toggle-track {
+    position: absolute; inset: 0;
+    background: var(--border2);
+    border-radius: 10px;
+    transition: background 0.2s;
+  }
+  .toggle-track::after {
+    content: '';
+    position: absolute;
+    left: 3px; top: 3px;
+    width: 14px; height: 14px;
+    background: var(--text-dim);
+    border-radius: 50%;
+    transition: all 0.2s;
+  }
+  .toggle-switch input:checked + .toggle-track { background: var(--green-dim); }
+  .toggle-switch input:checked + .toggle-track::after { left: 19px; background: var(--green); }
 
   .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 
@@ -703,14 +729,15 @@
         </div>
         <div>
           <label class="field-label">Norm Freq (Hz)</label>
-          <input type="number" id="norm-freq" placeholder="auto" min="100" max="2000">
+          <input type="number" id="norm-freq" placeholder="auto" min="100" max="2000"
+                 title="Only used when Norm Mode is 'freq' or 'energy'">
         </div>
       </div>
 
       <div class="row2" style="margin-top:10px">
         <div>
           <label class="field-label">Norm Mode</label>
-          <select id="norm-mode">
+          <select id="norm-mode" onchange="onNormModeChange(this)">
             <option value="perceptual">perceptual</option>
             <option value="freq">freq</option>
             <option value="energy">energy</option>
@@ -739,6 +766,69 @@
         <div>
           <label class="field-label">Output filename</label>
           <div id="out-name-preview" style="font-family:var(--mono);font-size:10px;color:var(--text-dim);padding:7px 4px;word-break:break-all;line-height:1.4">auto</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Advanced -->
+    <div class="section">
+      <div class="section-label">Advanced</div>
+
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <label style="font-size:11px;color:var(--text-mid)">Minimum phase</label>
+        <label class="toggle-switch">
+          <input type="checkbox" id="use-minphase" checked>
+          <span class="toggle-track"></span>
+        </label>
+      </div>
+
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <label style="font-size:11px;color:var(--text-mid)">Phase penalty</label>
+        <label class="toggle-switch">
+          <input type="checkbox" id="use-phase-penalty">
+          <span class="toggle-track"></span>
+        </label>
+      </div>
+
+      <div class="row2" style="margin-top:4px">
+        <div>
+          <label class="field-label">Mode</label>
+          <select id="opt-mode">
+            <option value="fast">Fast</option>
+            <option value="balanced" selected>Balanced</option>
+            <option value="accurate">Accurate</option>
+          </select>
+        </div>
+        <div>
+          <label class="field-label">Gain floor (dB)</label>
+          <select id="gain-floor">
+            <option value="0.05">0.05</option>
+            <option value="0.10" selected>0.10</option>
+            <option value="0.20">0.20</option>
+            <option value="0.50">0.50</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="row2" style="margin-top:8px">
+        <div>
+          <label class="field-label">Presence boost</label>
+          <select id="presence-boost">
+            <option value="1.0">1.0× (flat)</option>
+            <option value="1.5">1.5×</option>
+            <option value="2.2" selected>2.2× (default)</option>
+            <option value="3.0">3.0×</option>
+            <option value="4.0">4.0×</option>
+          </select>
+        </div>
+        <div>
+          <label class="field-label">Treble boost</label>
+          <select id="treble-boost">
+            <option value="1.0">1.0× (flat)</option>
+            <option value="1.3">1.3×</option>
+            <option value="1.8" selected>1.8× (default)</option>
+            <option value="2.5">2.5×</option>
+          </select>
         </div>
       </div>
     </div>
@@ -1018,11 +1108,17 @@ async function runEQ() {
     fd.append('target', document.getElementById('sel-target').value);
   }
 
-  fd.append('freq_end',  document.getElementById('freq-end').value);
-  fd.append('norm_freq', document.getElementById('norm-freq').value);
-  fd.append('norm_mode', document.getElementById('norm-mode').value);
-  fd.append('fs',        document.getElementById('fs').value);
-  fd.append('bands',     document.getElementById('bands').value);
+  fd.append('freq_end',       document.getElementById('freq-end').value);
+  fd.append('norm_freq',      document.getElementById('norm-freq').value);
+  fd.append('norm_mode',      document.getElementById('norm-mode').value);
+  fd.append('fs',             document.getElementById('fs').value);
+  fd.append('bands',          document.getElementById('bands').value);
+  fd.append('use_minphase',   document.getElementById('use-minphase').checked ? '1' : '0');
+  fd.append('use_phase',      document.getElementById('use-phase-penalty').checked ? '1' : '0');
+  fd.append('opt_mode',       document.getElementById('opt-mode').value);
+  fd.append('gain_floor',     document.getElementById('gain-floor').value);
+  fd.append('presence_boost', document.getElementById('presence-boost').value);
+  fd.append('treble_boost',   document.getElementById('treble-boost').value);
 
   try {
     const res  = await fetch('/api/run', { method: 'POST', body: fd });
@@ -1266,10 +1362,23 @@ function dlFile(kind) {
   window.location = `/api/download/${kind}`;
 }
 
+function onNormModeChange(sel) {
+  const normFreqInput = document.getElementById('norm-freq');
+  const isPerceptual = sel.value === 'perceptual';
+  normFreqInput.disabled = isPerceptual;
+  if (isPerceptual) {
+    normFreqInput.placeholder = 'N/A (perceptual mode)';
+    normFreqInput.value = '';
+  } else {
+    normFreqInput.placeholder = 'auto';
+  }
+}
+
 // ── Init ───────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('run-btn').addEventListener('click', runEQ);
   document.getElementById('sel-target').addEventListener('change', updateFilenamePreview);
+  onNormModeChange(document.getElementById('norm-mode')); // set initial state
   updateFilenamePreview();
 });
 
