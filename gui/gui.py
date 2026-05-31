@@ -153,16 +153,24 @@ def run():
     # Advanced params
     use_minphase   = request.form.get("use_minphase",   "1") == "1"
     use_phase      = request.form.get("use_phase",      "0") == "1"
-    opt_mode       = request.form.get("opt_mode",       "balanced").strip()
     gain_floor     = request.form.get("gain_floor",     "0.10").strip()
     presence_boost = request.form.get("presence_boost", "2.2").strip()
     treble_boost   = request.form.get("treble_boost",   "1.8").strip()
+    fc_range       = request.form.get("fc_range",       "").strip()
 
-    # Optimization mode → iters presets
-    iters_map = {"fast": "800",  "balanced": "1500", "accurate": "2500"}
-    joint_map = {"fast": "400",  "balanced": "800",  "accurate": "1200"}
-    iters     = iters_map.get(opt_mode, "1500")
-    joint     = joint_map.get(opt_mode, "800")
+    # Direct iters (override preset)
+    iters_direct = request.form.get("iters",       "").strip()
+    joint_direct = request.form.get("joint_iters", "").strip()
+    iters = iters_direct if iters_direct else "2500"
+    joint = joint_direct if joint_direct else "2500"
+
+    # Lambda params
+    lam        = request.form.get("lam",        "").strip()
+    lam_smooth = request.form.get("lam_smooth", "").strip()
+    lam_energy = request.form.get("lam_energy", "").strip()
+    lam_q      = request.form.get("lam_q",      "").strip()
+    lam_gd     = request.form.get("lam_gd",     "").strip()
+    lam_driver = request.form.get("lam_driver", "").strip()
 
     # custom target file upload takes priority
     custom_target_f = request.files.get("target_file")
@@ -207,6 +215,20 @@ def run():
         cmd += ["--presence-boost", presence_boost]
     if treble_boost:
         cmd += ["--treble-boost", treble_boost]
+    if fc_range:
+        cmd += ["--fc-range", fc_range]
+    if lam:
+        cmd += ["--lambda", lam]
+    if lam_smooth:
+        cmd += ["--lam-smooth", lam_smooth]
+    if lam_energy:
+        cmd += ["--lam-energy", lam_energy]
+    if lam_q:
+        cmd += ["--lam-q", lam_q]
+    if lam_gd:
+        cmd += ["--lam-gd", lam_gd]
+    if lam_driver:
+        cmd += ["--lam-driver", lam_driver]
     if target:
         cmd += ["--target", target]
     if freq_end:

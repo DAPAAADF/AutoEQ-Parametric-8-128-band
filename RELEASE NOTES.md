@@ -2,7 +2,7 @@
 
 ## What Changed
 
-### 🔧 EQ bands now start from 20 Hz minimum
+### EQ bands now start from 20 Hz minimum
 
 Poweramp's parametric EQ supports frequencies from **20 Hz** minimum. Previously, the joint optimizer's center-frequency perturbation could drift bands below 20 Hz (e.g. Band 1 at 18.7 Hz), wasting a filter slot on a frequency Poweramp cannot reproduce.
 

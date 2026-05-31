@@ -782,7 +782,7 @@
         </label>
       </div>
 
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
         <label style="font-size:11px;color:var(--text-mid)">Phase penalty</label>
         <label class="toggle-switch">
           <input type="checkbox" id="use-phase-penalty">
@@ -790,14 +790,21 @@
         </label>
       </div>
 
-      <div class="row2" style="margin-top:4px">
+      <div class="row2">
         <div>
-          <label class="field-label">Mode</label>
-          <select id="opt-mode">
-            <option value="fast">Fast</option>
-            <option value="balanced" selected>Balanced</option>
-            <option value="accurate">Accurate</option>
-          </select>
+          <label class="field-label">Iters</label>
+          <input type="number" id="iters" value="2500" min="100" max="20000" step="100">
+        </div>
+        <div>
+          <label class="field-label">Joint iters</label>
+          <input type="number" id="joint-iters" value="2500" min="100" max="20000" step="100">
+        </div>
+      </div>
+
+      <div class="row2" style="margin-top:8px">
+        <div>
+          <label class="field-label">fc-range</label>
+          <input type="number" id="fc-range" placeholder="0.10" min="0.01" max="0.5" step="0.01">
         </div>
         <div>
           <label class="field-label">Gain floor (dB)</label>
@@ -813,22 +820,49 @@
       <div class="row2" style="margin-top:8px">
         <div>
           <label class="field-label">Presence boost</label>
-          <select id="presence-boost">
-            <option value="1.0">1.0× (flat)</option>
-            <option value="1.5">1.5×</option>
-            <option value="2.2" selected>2.2× (default)</option>
-            <option value="3.0">3.0×</option>
-            <option value="4.0">4.0×</option>
-          </select>
+          <input type="number" id="presence-boost" value="2.2" min="0" max="10" step="0.1">
         </div>
         <div>
           <label class="field-label">Treble boost</label>
-          <select id="treble-boost">
-            <option value="1.0">1.0× (flat)</option>
-            <option value="1.3">1.3×</option>
-            <option value="1.8" selected>1.8× (default)</option>
-            <option value="2.5">2.5×</option>
-          </select>
+          <input type="number" id="treble-boost" value="1.8" min="0" max="10" step="0.1">
+        </div>
+      </div>
+    </div>
+
+    <!-- Lambda -->
+    <div class="section">
+      <div class="section-label">Lambda</div>
+
+      <div class="row2">
+        <div>
+          <label class="field-label">λ (lambda)</label>
+          <input type="number" id="lam" placeholder="0.001" min="0" max="1" step="0.0001">
+        </div>
+        <div>
+          <label class="field-label">lam-smooth</label>
+          <input type="number" id="lam-smooth" placeholder="0.001" min="0" max="1" step="0.0001">
+        </div>
+      </div>
+
+      <div class="row2" style="margin-top:8px">
+        <div>
+          <label class="field-label">lam-energy</label>
+          <input type="number" id="lam-energy" placeholder="0.005" min="0" max="1" step="0.0001">
+        </div>
+        <div>
+          <label class="field-label">lam-q</label>
+          <input type="number" id="lam-q" placeholder="0.01" min="0" max="1" step="0.001">
+        </div>
+      </div>
+
+      <div class="row2" style="margin-top:8px">
+        <div>
+          <label class="field-label">lam-gd</label>
+          <input type="number" id="lam-gd" placeholder="0.001" min="0" max="1" step="0.0001">
+        </div>
+        <div>
+          <label class="field-label">lam-driver</label>
+          <input type="number" id="lam-driver" placeholder="0.5" min="0" max="10" step="0.01">
         </div>
       </div>
     </div>
@@ -1038,8 +1072,30 @@ function onFile(ch, input) {
 });
 
 // ── Loading overlay ────────────────────────────────────────────────────────
-const STEP_TIMES = [0, 2, 5, 30, 80, 115]; // approx seconds each step starts
 let _elTimer, _stepTimer, _startTime;
+
+function calcStepTimes() {
+  const iters      = parseInt(document.getElementById('iters').value)      || 2500;
+  const jointIters = parseInt(document.getElementById('joint-iters').value) || 2500;
+
+  // Benchmarks: biquad_response_and_grad ~2.85ms + driver penalty ~0.6ms = ~3.5ms/call
+  // L-BFGS-B line search ~2x multiplier
+  // IRLS: 2 passes (iters/2 + iters) * 2 * 3.5ms
+  const msPerIter   = 3.5;
+  const lsMult      = 2.0;
+
+  const t_load    = 0;
+  const t_norm    = 0.8;
+  const t_irls    = 1.5;
+  const irls_sec  = ((iters / 2 + iters) * lsMult * msPerIter) / 1000;
+  const mstart_sec = (iters * 0.5 * lsMult * msPerIter) / 1000;
+  const t_realloc = t_irls + irls_sec + mstart_sec;
+  const t_joint   = t_realloc + 4;
+  const joint_sec = (jointIters * lsMult * 1.66) / 1000;
+  const t_output  = t_joint + joint_sec;
+
+  return [t_load, t_norm, t_irls, t_realloc, t_joint, t_output].map(v => Math.round(v * 10) / 10);
+}
 
 function showOverlay() {
   // reset steps
@@ -1052,6 +1108,7 @@ function showOverlay() {
   document.getElementById('overlay').classList.add('visible');
 
   _startTime = Date.now();
+  const STEP_TIMES = calcStepTimes();
 
   // elapsed counter
   _elTimer = setInterval(() => {
@@ -1115,10 +1172,18 @@ async function runEQ() {
   fd.append('bands',          document.getElementById('bands').value);
   fd.append('use_minphase',   document.getElementById('use-minphase').checked ? '1' : '0');
   fd.append('use_phase',      document.getElementById('use-phase-penalty').checked ? '1' : '0');
-  fd.append('opt_mode',       document.getElementById('opt-mode').value);
   fd.append('gain_floor',     document.getElementById('gain-floor').value);
   fd.append('presence_boost', document.getElementById('presence-boost').value);
   fd.append('treble_boost',   document.getElementById('treble-boost').value);
+  fd.append('iters',          document.getElementById('iters').value);
+  fd.append('joint_iters',    document.getElementById('joint-iters').value);
+  fd.append('fc_range',       document.getElementById('fc-range').value);
+  fd.append('lam',            document.getElementById('lam').value);
+  fd.append('lam_smooth',     document.getElementById('lam-smooth').value);
+  fd.append('lam_energy',     document.getElementById('lam-energy').value);
+  fd.append('lam_q',          document.getElementById('lam-q').value);
+  fd.append('lam_gd',         document.getElementById('lam-gd').value);
+  fd.append('lam_driver',     document.getElementById('lam-driver').value);
 
   try {
     const res  = await fetch('/api/run', { method: 'POST', body: fd });
