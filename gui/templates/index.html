@@ -898,8 +898,8 @@
         <div style="text-align:right">
           <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);margin-bottom:4px" id="dl-bar-filename"></div>
           <div style="display:flex;gap:8px">
-            <button class="dl-bar-btn" id="dl-result" disabled onclick="dlFile('result')">⬇ Download Preset</button>
-            <button class="dl-bar-btn secondary" id="dl-posteq" disabled onclick="dlFile('posteq')">⬇ PostEQ Simulation</button>
+            <button class="dl-bar-btn" id="dl-zip" disabled onclick="dlFile('zip')">⬇ Download All (ZIP)</button>
+            <button class="dl-bar-btn secondary" id="dl-posteq" disabled onclick="dlFile('posteq')">⬇ PostEQ Only</button>
           </div>
         </div>
       </div>
@@ -1217,7 +1217,7 @@ function renderResults(data) {
   document.getElementById('preamp-section').style.display = '';
 
   // Downloads + dl-bar
-  document.getElementById('dl-result').disabled = false;
+  document.getElementById('dl-zip').disabled = false;
   document.getElementById('dl-posteq').disabled = false;
   document.getElementById('dl-bar').style.display = 'flex';
   const rmseM = (data.output || '').match(/RMSE.*?:\s*([\d.]+)\s*dB/);

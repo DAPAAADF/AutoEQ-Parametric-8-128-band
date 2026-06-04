@@ -1,9 +1,9 @@
-# AutoEQ — 64-band Parametric EQ for Poweramp
+# AutoEQ — 64-band Parametric EQ Optimizer
 
-A psychoacoustic-aware IEM correction engine for **Poweramp 64-band Parametric EQ**.  
-Takes stereo L/R measurements and a target curve, outputs a 64-band PEQ preset ready to enter into Poweramp.
+A psychoacoustic-aware IEM correction engine with exact biquad modeling.  
+Takes stereo L/R measurements and a target curve, outputs optimized parametric EQ presets.
 
-> **Platform:** Python on PC (web interface). Output is for Poweramp on Android.
+> **Platform:** Python on PC (web interface). Primary output: Poweramp 64-band PEQ (Android).
 
 ---
 
@@ -19,7 +19,8 @@ Takes stereo L/R measurements and a target curve, outputs a 64-band PEQ preset r
 - **Psychoacoustic optimization** — perceptual weighting, Huber robust loss, multi-resolution IRLS
 - **Exact biquad pipeline** — no filter shape approximations
 - **Post-EQ simulation** — always generated; upload `*_PostEQ.txt` to Squiglink to verify visually
-- **Built-in target** — Euvony Reference (vocal-centric, detail-hunter, airy)
+- **ZIP output** — downloads `result.txt` (clean preset), `report.txt` (full metadata + accuracy), and `PostEQ.txt` in one file
+- **Built-in target** — Euvony Reference (neutral-bright-airy)
 
 ---
 
@@ -48,9 +49,9 @@ pip install numpy scipy tqdm
 **2. Place your measurement files in the `Measurement/` folder**
 
 Files must be named with `[L]` / `[R]` or `_L` / `_R` in the filename.  
-Example: `KZ Libra [L].txt` and `KZ Libra [R].txt`
+Example: `KZ Taurus [L].txt` and `KZ Taurus [R].txt`
 
-**3. Double-click `run.bat`**
+**3. Double-click `gui/run.bat`**
 
 Browser opens automatically at `localhost:5000`. That's it.
 
@@ -77,8 +78,7 @@ A loading overlay appears with a live progress indicator and elapsed timer.
 
 - **Preamp value** — displayed prominently in amber. Set this in Poweramp first.
 - **RMSE** — how closely the EQ matches the target
-- **Download Preset** — the PEQ file to import into Poweramp
-- **Download PostEQ Simulation** — upload to [squig.link](https://squig.link) to visually verify
+- **Download All (ZIP)** — downloads 3 files: clean preset, full report, and PostEQ simulation
 - **Frequency Response chart** — Raw L+R avg (grey), Target (blue dashed), Post-EQ (green)
 
 ![Accuracy table](docs/screenshot_accuracy.png)
@@ -91,11 +91,23 @@ A loading overlay appears with a live progress indicator and elapsed timer.
 
 ---
 
+## Output Files
+
+Each run produces 3 files, bundled into a ZIP:
+
+| File | Contents |
+|---|---|
+| `IEM - TARGET.txt` | Clean preset — Preamp + Filter lines only, no comments |
+| `IEM - TARGET_report.txt` | Full report — optimizer metadata, RMSE, accuracy table, annotated PEQ |
+| `IEM - TARGET_PostEQ.txt` | Post-EQ simulation — upload to [squig.link](https://squig.link) to verify visually |
+
+---
+
 ## How to Import into Poweramp
 
 1. Open Poweramp → three-dot menu → **Equalizer**
 2. Set **Preamp** to the value shown (e.g. `-8.8 dB`) — **mandatory, do this first**
-3. Import the preset file directly — no manual band entry needed
+3. Enter each Filter band manually into Poweramp's PEQ
 
 > ⚠️ Always set Preamp first. Without it, boost filters will cause digital clipping.
 
@@ -103,20 +115,17 @@ A loading overlay appears with a live progress indicator and elapsed timer.
 
 ## Included Targets
 
-All targets are in the `targets/` folder. Tuned for female vocal-centric listening.
+All targets are in the `targets/` folder.
 
 | File | Character |
 |---|---|
-| `Euvony Personal Flat.txt` | Analytical reference, no bass emphasis |
-| `Euvony Personal Target Musical.txt` | Musical, long listening, balanced |
-| `Euvony Personal Target Moderate.txt` | Moderate bass, vocal forward |
-| `Euvony Personal Target.txt` | Personal reference |
-| `Euvony VocalGod.txt` | Vocal-forward, earlier version |
-| `Euvony_VocalGod_v1i.txt` | **Vocal supremacy** — female vocal absolute dominant |
-| `Diffuse Field Target.txt` | Diffuse field reference |
-| `Harman 2019v2 Target.txt` | Harman 2019 v2 consumer target |
-
-> Targets were tuned using spectral analysis of real tracks (aespa, YOASOBI, GFRIEND, Lilas Ikuta) and iterated through listening tests.
+| `Euvony Personal Target.txt` | Neutral-bright-airy. Vocal-forward with extended treble, sub-bass shelf, analytical detail retrieval |
+| `Harman 2019v2 Target.txt` | Consumer-tuned. Elevated bass shelf, warm mids, widely used reference |
+| `IEF Neutral 2020 Target.txt` | Crinacle's original neutral reference. Flat-leaning, less bass than Harman, clinical |
+| `IEF Neutral 2023 Target.txt` | Updated IEF Neutral. Added lower-mid weight, reduced 1–2kHz honkiness, more natural timbre |
+| `#U0394 IEF Preference 2025 Target.txt` | Crinacle's preference curve, not neutrality target. PopAvg-DF (JM-1) base with +10dB bass shelf and -4dB treble shelf. Speaker-like, engaging |
+| `#U0394 5128 DF (Tilt_ -1dB_Oct) Target.txt` | B&K 5128 diffuse field with -1dB/oct tilt. Reference-grade, slightly warm |
+| `#U0394 JM-1 DF (Tilt_ -1dB_Oct) Target.txt` | JM-1 diffuse field with -1dB/oct tilt. Neutral baseline, flatter than IEF Preference |
 
 ---
 
@@ -124,17 +133,20 @@ All targets are in the `targets/` folder. Tuned for female vocal-centric listeni
 
 The default target when no custom target is selected.
 
-**Philosophy:** Vocal-centric · Detail-hunter · Airy
+**Character:** Neutral · Bright · Airy
 
-- **150–350 Hz** — female chest voice elevated
-- **500 Hz** — dipped to remove IEM boxiness
-- **2.5–3.8 kHz** — presence plateau, singer's formant dominant
-- **4–9.5 kHz** — maintained for clarity and transient precision
-- **9.5–20 kHz** — linear descent, natural and extended
+- **20–100 Hz** — gentle sub-bass shelf, not bass-boosted
+- **150–400 Hz** — female chest voice body, elevated for vocal weight
+- **500 Hz** — slight dip to reduce IEM boxiness
+- **1–2 kHz** — natural presence, no honk
+- **2.5–3 kHz** — presence peak, singer's formant region
+- **4–10 kHz** — maintained for clarity, transient precision, and air
+- **10–16 kHz** — extended treble rise for airy quality before steep rolloff
 
 Compared to references:
-- vs **Harman**: less bass, +5 dB @ 3 kHz, much more treble extension
-- vs **Diffuse Field**: similar sub-bass, +5 dB vocal body at 200–300 Hz
+- vs **Harman**: less bass, brighter presence, much more treble extension
+- vs **IEF Neutral 2023**: more vocal body at 200–400 Hz, higher presence peak, more air above 8kHz
+- vs **IEF Preference 2025**: less bass emphasis, more analytical, brighter overall
 
 ---
 

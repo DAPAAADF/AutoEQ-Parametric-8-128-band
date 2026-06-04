@@ -1628,6 +1628,20 @@ def format_peq(fcs, Qs, gains, preamp, n_opt, extra_comments,
     return "\n".join(lines)
 
 
+def format_peq_clean(fcs, Qs, gains, preamp, n_opt, gain_floor=0.1):
+    """Output bersih: Preamp + Filter lines only, no comments."""
+    POWERAMP_Q_MAX = 12.0
+    GAIN_MIN       = gain_floor
+    lines = [f"Preamp: {preamp:+.1f} dB", ""]
+    for i, (fc, Q, g) in enumerate(zip(fcs, Qs, gains), 1):
+        fc_out = int(round(fc))
+        Q_out  = min(Q, POWERAMP_Q_MAX)
+        g_out  = 0.0 if abs(g) < GAIN_MIN else g
+        lines.append(f"Filter {i:2d}: ON PK Fc {fc_out:6d} Hz  "
+                     f"Gain {g_out:+.2f} dB  Q {Q_out:.2f}")
+    return "\n".join(lines)
+
+
 def format_geq(fcs, corr_fn):
     gains = np.clip(corr_fn(fcs), -12, 12)
     max_b = max(0.0, float(np.max(gains)))
@@ -2401,10 +2415,19 @@ def main():
         sections += ["", "\n".join(["# === GRAPHIC EQ (correction curve only, no boost/cut) ===", "",
                                     format_geq(fcs[:n_opt], corr_fn)])]
 
+    # result.txt — filter bersih tanpa komentar
+    result_clean = format_peq_clean(fcs, Qs, gains, preamp, n_opt,
+                                    gain_floor=args.gain_floor)
     with open(args.output, "w", encoding="utf-8") as f:
+        f.write(result_clean)
+
+    # report.txt — header + accuracy table + peq lengkap
+    report_path = args.output.replace(".txt", "_report.txt")
+    with open(report_path, "w", encoding="utf-8") as f:
         f.write("\n".join(sections))
 
     print(f"\nSaved      -> {args.output}")
+    print(f"Report     -> {report_path}")
     print(f"Preamp     : {preamp:+.1f} dB")
     print("\nAccuracy (vs target):")
     print(accuracy_table(f_fit, pred, c_fit))

@@ -13,6 +13,8 @@ import webbrowser
 import subprocess
 import tempfile
 import uuid
+import zipfile
+import io
 import numpy as np
 from pathlib import Path
 
@@ -283,21 +285,45 @@ def run():
 
 @app.route("/api/download/<kind>")
 def download(kind):
-    # find the most recently modified .txt file in session folder
-    txt_files = sorted(SESS.glob("*.txt"), key=lambda f: f.stat().st_mtime, reverse=True)
+    txt_files    = sorted(SESS.glob("*.txt"), key=lambda f: f.stat().st_mtime, reverse=True)
     posteq_files = sorted(SESS.glob("*_PostEQ.txt"), key=lambda f: f.stat().st_mtime, reverse=True)
 
     if kind == "result":
-        # latest non-PostEQ txt
-        result_files = [f for f in txt_files if "_PostEQ" not in f.name]
+        result_files = [f for f in txt_files if "_PostEQ" not in f.name and "_report" not in f.name]
         p = result_files[0] if result_files else None
+        if p and p.exists():
+            return send_file(p, as_attachment=True, download_name=p.name)
+        return "Not found", 404
+
     elif kind == "posteq":
         p = posteq_files[0] if posteq_files else None
-    else:
-        p = None
+        if p and p.exists():
+            return send_file(p, as_attachment=True, download_name=p.name)
+        return "Not found", 404
 
-    if p and p.exists():
-        return send_file(p, as_attachment=True, download_name=p.name)
+    elif kind == "zip":
+        result_files = [f for f in txt_files if "_PostEQ" not in f.name and "_report" not in f.name]
+        report_files = [f for f in txt_files if "_report" in f.name]
+        result  = result_files[0] if result_files else None
+        report  = report_files[0] if report_files else None
+        posteq  = posteq_files[0] if posteq_files else None
+
+        if not result:
+            return "No result found", 404
+
+        zip_name = result.stem + "_AutoEQ.zip"
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            if result and result.exists():
+                zf.write(result,  result.name)
+            if report and report.exists():
+                zf.write(report,  report.name)
+            if posteq and posteq.exists():
+                zf.write(posteq,  posteq.name)
+        buf.seek(0)
+        return send_file(buf, as_attachment=True, download_name=zip_name,
+                         mimetype="application/zip")
+
     return "Not found", 404
 
 
