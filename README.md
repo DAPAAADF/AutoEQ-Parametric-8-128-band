@@ -123,9 +123,9 @@ All targets are in the `targets/` folder.
 | `Harman 2019v2 Target.txt` | Consumer-tuned. Elevated bass shelf, warm mids, widely used reference |
 | `IEF Neutral 2020 Target.txt` | Crinacle's original neutral reference. Flat-leaning, less bass than Harman, clinical |
 | `IEF Neutral 2023 Target.txt` | Updated IEF Neutral. Added lower-mid weight, reduced 1–2kHz honkiness, more natural timbre |
-| `#U0394 IEF Preference 2025 Target.txt` | Crinacle's preference curve, not neutrality target. PopAvg-DF (JM-1) base with +10dB bass shelf and -4dB treble shelf. Speaker-like, engaging |
-| `#U0394 5128 DF (Tilt_ -1dB_Oct) Target.txt` | B&K 5128 diffuse field with -1dB/oct tilt. Reference-grade, slightly warm |
-| `#U0394 JM-1 DF (Tilt_ -1dB_Oct) Target.txt` | JM-1 diffuse field with -1dB/oct tilt. Neutral baseline, flatter than IEF Preference |
+| `Δ IEF Preference 2025 Target.txt` | Crinacle's preference curve, not neutrality target. PopAvg-DF (JM-1) base with +10dB bass shelf and -4dB treble shelf. Speaker-like, engaging |
+| `Δ 5128 DF (Tilt_ -1dB_Oct) Target.txt` | B&K 5128 diffuse field with -1dB/oct tilt. Reference-grade, slightly warm |
+| `Δ JM-1 DF (Tilt_ -1dB_Oct) Target.txt` | JM-1 diffuse field with -1dB/oct tilt. Neutral baseline, flatter than IEF Preference |
 
 ---
 
