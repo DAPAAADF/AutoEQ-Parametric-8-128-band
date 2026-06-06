@@ -1,4 +1,3 @@
-
 import argparse
 import sys
 import os
@@ -685,9 +684,9 @@ def adaptive_q(fc):
 
 
 def make_bands(freq_start, freq_end, n_bands=64, warp=True,
-               presence_lo=2000.0, presence_hi=8000.0, presence_boost=2.2,
+               presence_lo=2000.0, presence_hi=8000.0, presence_boost=2.0,
                bass_lo=20.0, bass_hi=200.0, bass_boost=0.8,
-               treble_lo=8000.0, treble_hi=20000.0, treble_boost=1.8):
+               treble_lo=8000.0, treble_hi=20000.0, treble_boost=3.0):
     if not warp:
         fcs = np.logspace(np.log10(freq_start), np.log10(freq_end), n_bands)
         return fcs, np.array([adaptive_q(fc) for fc in fcs])
