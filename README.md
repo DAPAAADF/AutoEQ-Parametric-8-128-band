@@ -105,9 +105,13 @@ Each run produces 3 files, bundled into a ZIP:
 
 ## How to Import into Poweramp
 
-1. Open Poweramp → three-dot menu → **Equalizer**
-2. Set **Preamp** to the value shown (e.g. `-8.8 dB`) — **mandatory, do this first**
-3. Enter each Filter band manually into Poweramp's PEQ
+> Output file format is compatible with **Poweramp** on Android. Poweramp supports direct import of parametric EQ preset files — no manual band entry needed.
+
+1. Download the ZIP and extract `IEM - TARGET.txt`
+2. Move the file to your phone storage
+3. Open Poweramp → three-dot menu → **Equalizer** → **Presets** → **Import**
+4. Select the `.txt` file — all 64 bands load automatically
+5. Set **Preamp** to the value shown in the preset — **mandatory, do this first**
 
 > ⚠️ Always set Preamp first. Without it, boost filters will cause digital clipping.
 
@@ -123,9 +127,9 @@ All targets are in the `targets/` folder.
 | `Harman 2019v2 Target.txt` | Consumer-tuned. Elevated bass shelf, warm mids, widely used reference |
 | `IEF Neutral 2020 Target.txt` | Crinacle's original neutral reference. Flat-leaning, less bass than Harman, clinical |
 | `IEF Neutral 2023 Target.txt` | Updated IEF Neutral. Added lower-mid weight, reduced 1–2kHz honkiness, more natural timbre |
-| `Δ IEF Preference 2025 Target.txt` | Crinacle's preference curve, not neutrality target. PopAvg-DF (JM-1) base with +10dB bass shelf and -4dB treble shelf. Speaker-like, engaging |
-| `Δ 5128 DF (Tilt_ -1dB_Oct) Target.txt` | B&K 5128 diffuse field with -1dB/oct tilt. Reference-grade, slightly warm |
-| `Δ JM-1 DF (Tilt_ -1dB_Oct) Target.txt` | JM-1 diffuse field with -1dB/oct tilt. Neutral baseline, flatter than IEF Preference |
+| `#U0394 IEF Preference 2025 Target.txt` | Crinacle's preference curve, not neutrality target. PopAvg-DF (JM-1) base with +10dB bass shelf and -4dB treble shelf. Speaker-like, engaging |
+| `#U0394 5128 DF (Tilt_ -1dB_Oct) Target.txt` | B&K 5128 diffuse field with -1dB/oct tilt. Reference-grade, slightly warm |
+| `#U0394 JM-1 DF (Tilt_ -1dB_Oct) Target.txt` | JM-1 diffuse field with -1dB/oct tilt. Neutral baseline, flatter than IEF Preference |
 
 ---
 
