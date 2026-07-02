@@ -1929,7 +1929,7 @@ def load_config(path="autoeq_config.txt"):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="AutoEQ v17 — IEM correction pipeline → Poweramp 64-band PEQ. See README.md for usage.",
+        description="AutoEQ v17 — IEM correction pipeline → Poweramp 64/128-band PEQ. See README.md for usage.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="Example:\n  python3 autoeq17-1.py left.txt right.txt -o result.txt\n"
                "  python3 autoeq17-1.py left.txt right.txt --target my_target.txt -o result.txt"
@@ -2119,10 +2119,10 @@ def main():
     print(f"L/R uncertainty weighting: {n_stable}/{len(f_fit)} pts stable (L-R < 0.6 dB)")
 
     n_bc    = len(args.boost_cuts) if args.boost_cuts else 0
-    if args.bands > 64:
-        print(f"WARNING: --bands {args.bands} exceeds Poweramp 64-band limit, clamping to 64")
-        args.bands = 64
-    n_bands = min(args.bands, 64 - n_bc)
+    if args.bands > 128:
+        print(f"WARNING: --bands {args.bands} exceeds 128-band limit, clamping to 128")
+        args.bands = 128
+    n_bands = min(args.bands, 128 - n_bc)
     use_warp   = not args.no_warp
     warp_label = "warped (presence boost 2k-8k)" if use_warp else "plain logspace"
 
