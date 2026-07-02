@@ -1,21 +1,21 @@
-# AutoEQ — 64-band Parametric EQ Optimizer
+# AutoEQ — 8–128 band Parametric EQ Optimizer
 
 A psychoacoustic-aware IEM correction engine with exact biquad modeling.  
 Takes stereo L/R measurements and a target curve, outputs optimized parametric EQ presets.
 
-> **Platform:** Python on PC (web interface). Primary output: Poweramp 64-band PEQ (Android).
+> **Platform:** Python on PC (web interface). Primary output: Poweramp 8–128 band PEQ (Android).
 
 ---
 
 ## Features
 
-- **64-band parametric EQ** output with exact biquad filter modeling
+- **8–128 band parametric EQ** output with exact biquad filter modeling
 - **Web-based GUI** — runs in your browser, no terminal needed
 - **Auto file detection** — drop your measurement files and run
 - **Auto normalization** — finds the flattest region between 500–800 Hz automatically
 - **Auto freq-end detection** — detects usable upper limit from measurement rolloff
 - **Auto output naming** — output file named from your IEM + target automatically
-- **EQ Bands selector** — choose 16 / 32 / 64 bands
+- **EQ Bands selector** — choose 8 / 10 / 16 / 32 / 64 / 128 bands
 - **Psychoacoustic optimization** — perceptual weighting, Huber robust loss, multi-resolution IRLS
 - **Exact biquad pipeline** — no filter shape approximations
 - **Post-EQ simulation** — always generated; upload `*_PostEQ.txt` to Squiglink to verify visually
@@ -87,7 +87,7 @@ A loading overlay appears with a live progress indicator and elapsed timer.
 
 ![Filter bands](docs/screenshot_bands.png)
 
-- **Filter Bands** — all 64 band values ready to enter into Poweramp
+- **Filter Bands** — all band values ready to enter into Poweramp (up to 128)
 
 ---
 
@@ -110,7 +110,7 @@ Each run produces 3 files, bundled into a ZIP:
 1. Download the ZIP and extract `IEM - TARGET.txt`
 2. Move the file to your phone storage
 3. Open Poweramp → three-dot menu → **Equalizer** → **Presets** → **Import**
-4. Select the `.txt` file — all 64 bands load automatically
+4. Select the `.txt` file — all bands load automatically (up to 128)
 5. Set **Preamp** to the value shown in the preset — **mandatory, do this first**
 
 > ⚠️ Always set Preamp first. Without it, boost filters will cause digital clipping.
